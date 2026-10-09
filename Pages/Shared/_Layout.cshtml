@@ -1,0 +1,104 @@
+@inject JSWMI_CRM.Services.ISapB1Service SapService
+@inject JSWMI_CRM.Services.ISupabaseService SupaService
+@{
+    var sapConfig = SapService.GetConfig();
+    var supaConfig = SupaService.GetConfig();
+}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@ViewData["Title"] - JSWMI CRM</title>
+    <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" />
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+</head>
+<body>
+    <header>
+        <nav class="navbar navbar-expand-lg jsw-navbar">
+            <div class="container-fluid px-3">
+                <a class="navbar-brand jsw-brand" asp-area="" asp-page="/Index">
+                    <i class="bi bi-layers-fill text-warning"></i>
+                    <span>JSWMI CRM</span>
+                    <span class="brand-badge">Steel Core</span>
+                </a>
+                <button class="navbar-toggler text-white border-0" type="button" data-bs-toggle="collapse" data-bs-target="#navbarMain" aria-controls="navbarMain"
+                        aria-expanded="false" aria-label="Toggle navigation">
+                    <span class="bi bi-list fs-2 text-white"></span>
+                </button>
+                <div class="collapse navbar-collapse" id="navbarMain">
+                    <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+                        <li class="nav-item">
+                            <a class="nav-link jsw-nav-link" asp-page="/Index">
+                                <i class="bi bi-speedometer2"></i> Dashboard
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link jsw-nav-link" asp-page="/SalesOrders/Index">
+                                <i class="bi bi-receipt"></i> Sales Orders
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link jsw-nav-link" asp-page="/CuttingPlans/Index">
+                                <i class="bi bi-scissors"></i> Cutting Plans
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link jsw-nav-link" asp-page="/SapIntegration/Index">
+                                <i class="bi bi-cpu"></i> SAP B1 API Sync
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link jsw-nav-link" asp-page="/Settings/Index">
+                                <i class="bi bi-database-gear"></i> Cloud & Database
+                            </a>
+                        </li>
+                    </ul>
+
+                    <div class="d-flex align-items-center gap-2">
+                        <!-- Supabase Cloud pill -->
+                        <span class="badge rounded-pill bg-dark border border-secondary text-light px-3 py-2 d-flex align-items-center gap-2">
+                            <i class="bi bi-database-fill text-success"></i>
+                            <span>Supabase: @(supaConfig.UseCloudStorage ? "Cloud Connected" : "Local / Cloud Sync")</span>
+                        </span>
+
+                        <!-- SAP B1 pill -->
+                        <span class="badge rounded-pill bg-dark border border-secondary text-light px-3 py-2 d-flex align-items-center gap-2">
+                            <i class="bi bi-plug-fill @(sapConfig.SimulationMode ? "text-warning" : "text-info")"></i>
+                            <span>SAP B1: @(sapConfig.SimulationMode ? "Sandbox Simulator" : sapConfig.CompanyDB)</span>
+                        </span>
+
+                        <a asp-page="/CuttingPlans/Create" class="btn btn-jsw btn-sm">
+                            <i class="bi bi-plus-circle me-1"></i> New Cutting Plan
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </nav>
+    </header>
+
+    <div class="container-fluid px-4 py-4 main-content">
+        @RenderBody()
+    </div>
+
+    <footer class="footer mt-auto py-3 bg-white border-top text-muted">
+        <div class="container-fluid px-4 d-flex justify-content-between align-items-center small">
+            <div>
+                &copy; 2026 <strong>JSW MI Steel Service Center</strong> - CRM & Cutting Plan SAP B1 Integration System.
+            </div>
+            <div class="d-flex gap-3">
+                <span><i class="bi bi-cloud me-1"></i> Supabase Cloud PostgreSQL</span>
+                <span><i class="bi bi-link-45deg me-1"></i> SAP Business One Service Layer API</span>
+                <a asp-page="/Settings/Index" class="text-decoration-none text-muted"><i class="bi bi-gear me-1"></i> Configuration</a>
+            </div>
+        </div>
+    </footer>
+
+    <script src="~/lib/jquery/dist/jquery.min.js"></script>
+    <script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="~/js/site.js" asp-append-version="true"></script>
+
+    @await RenderSectionAsync("Scripts", required: false)
+</body>
+</html>

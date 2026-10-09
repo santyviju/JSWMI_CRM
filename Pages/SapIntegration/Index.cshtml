@@ -1,0 +1,226 @@
+@page
+@model JSWMI_CRM.Pages.SapIntegration.IndexModel
+@{
+    ViewData["Title"] = "SAP B1 API Integration";
+}
+
+@if (!string.IsNullOrEmpty(Model.SuccessMessage))
+{
+    <div class="alert alert-success alert-dismissible fade show d-flex align-items-center" role="alert">
+        <i class="bi bi-check-circle-fill me-2 fs-5"></i>
+        <div>@Model.SuccessMessage</div>
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+}
+
+@if (!string.IsNullOrEmpty(Model.ErrorMessage))
+{
+    <div class="alert alert-danger alert-dismissible fade show d-flex align-items-center" role="alert">
+        <i class="bi bi-exclamation-triangle-fill me-2 fs-5"></i>
+        <div>@Model.ErrorMessage</div>
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+}
+
+<div class="d-flex flex-wrap justify-content-between align-items-center mb-4">
+    <div>
+        <h2 class="fw-bold mb-1 text-primary"><i class="bi bi-cpu"></i> SAP Business One Service Layer Integration</h2>
+        <p class="text-muted mb-0">REST API bridge for pushing Cutting Plans into SAP B1 Production Orders and fetching Sales Orders.</p>
+    </div>
+    <div class="d-flex gap-2 mt-2 mt-md-0">
+        <form method="post" asp-page-handler="TestConnection">
+            <button type="submit" class="btn btn-outline-primary">
+                <i class="bi bi-broadcast me-1"></i> Test Connection
+            </button>
+        </form>
+        <a asp-page="/Settings/Index" class="btn btn-jsw">
+            <i class="bi bi-sliders me-1"></i> Edit SAP Credentials
+        </a>
+    </div>
+</div>
+
+<div class="row g-4 mb-4">
+    <!-- Active Endpoint Configuration -->
+    <div class="col-12 col-lg-6">
+        <div class="jsw-card h-100">
+            <div class="jsw-card-header">
+                <h5 class="jsw-card-title"><i class="bi bi-hdd-network text-primary"></i> Service Layer Connection Details</h5>
+                @if (Model.Config.SimulationMode)
+                {
+                    <span class="badge bg-warning text-dark">Sandbox / Simulated Mode</span>
+                }
+                else
+                {
+                    <span class="badge bg-success">Live API Connected</span>
+                }
+            </div>
+            <div class="p-3">
+                <div class="row g-3">
+                    <div class="col-12">
+                        <span class="text-muted small">Service Layer URL:</span>
+                        <div class="font-monospace text-primary">@Model.Config.ServiceLayerUrl</div>
+                    </div>
+                    <div class="col-sm-6">
+                        <span class="text-muted small">Company Database:</span>
+                        <div class="fw-bold">@Model.Config.CompanyDB</div>
+                    </div>
+                    <div class="col-sm-6">
+                        <span class="text-muted small">Service User:</span>
+                        <div><code>@Model.Config.UserName</code></div>
+                    </div>
+                    <div class="col-sm-6">
+                        <span class="text-muted small">Target Document Type:</span>
+                        <div>
+                            <span class="badge bg-primary">@Model.Config.TargetDocumentType</span>
+                            @(Model.Config.TargetDocumentType == "CustomUDO" ? $"({Model.Config.UdoName})" : "(Disassembly)")
+                        </div>
+                    </div>
+                    <div class="col-sm-6">
+                        <span class="text-muted small">SSL Verification:</span>
+                        <div>@(Model.Config.BypassSslCertificate ? "Bypass Self-Signed (Dev)" : "Strict SSL")</div>
+                    </div>
+                </div>
+
+                <div class="mt-4 pt-3 border-top d-flex justify-content-between align-items-center">
+                    <div>
+                        <strong class="small d-block">Sandbox Simulation Switch</strong>
+                        <span class="text-muted small">Toggle to test without live SAP network connection</span>
+                    </div>
+                    <form method="post" asp-page-handler="ToggleSimulation" asp-route-enabled="@(!Model.Config.SimulationMode)">
+                        <button type="submit" class="btn btn-sm @(Model.Config.SimulationMode ? "btn-outline-danger" : "btn-outline-warning")">
+                            @(Model.Config.SimulationMode ? "Switch to Live Mode" : "Switch to Sandbox Mode")
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- API Architecture & Mapping Info -->
+    <div class="col-12 col-lg-6">
+        <div class="jsw-card h-100">
+            <div class="jsw-card-header">
+                <h5 class="jsw-card-title"><i class="bi bi-diagram-3 text-primary"></i> Data Flow Architecture</h5>
+            </div>
+            <div class="p-3">
+                <ul class="list-group list-group-flush small">
+                    <li class="list-group-item d-flex justify-content-between align-items-center px-0">
+                        <span><strong>1. Authentication:</strong> <code>POST /b1s/v1/Login</code></span>
+                        <span class="badge bg-light text-dark border">Cookie Session</span>
+                    </li>
+                    <li class="list-group-item d-flex justify-content-between align-items-center px-0">
+                        <span><strong>2. Sales Orders Sync:</strong> <code>GET /b1s/v1/Orders?$filter=...</code></span>
+                        <span class="badge bg-light text-dark border">OData v4</span>
+                    </li>
+                    <li class="list-group-item d-flex justify-content-between align-items-center px-0">
+                        <span><strong>3. Cutting Plan Import:</strong> <code>POST /b1s/v1/ProductionOrders</code></span>
+                        <span class="badge bg-success-subtle text-success border">Automatic</span>
+                    </li>
+                    <li class="list-group-item d-flex justify-content-between align-items-center px-0">
+                        <span><strong>4. Cloud Mirroring:</strong> Supabase PostgreSQL Database</span>
+                        <span class="badge bg-primary-subtle text-primary border">Persisted</span>
+                    </li>
+                </ul>
+                <div class="p-2 bg-light rounded mt-3 text-muted small">
+                    <i class="bi bi-info-circle me-1"></i> When a cutting plan is pushed, it creates a <strong>Disassembly Production Order</strong> in SAP B1 with the Mother Coil as raw material and all slit specifications as finished goods lines.
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- API Dispatch Audit Logs -->
+<div class="jsw-card">
+    <div class="jsw-card-header">
+        <h5 class="jsw-card-title"><i class="bi bi-journal-text text-primary"></i> SAP B1 API Dispatch Audit Logs (@Model.Logs.Count)</h5>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+            <thead>
+                <tr>
+                    <th>Timestamp (UTC)</th>
+                    <th>Type</th>
+                    <th>HTTP Method & Endpoint</th>
+                    <th>Status Code</th>
+                    <th>Result</th>
+                    <th class="text-end">Payload Inspection</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (Model.Logs.Count == 0)
+                {
+                    <tr>
+                        <td colspan="6" class="text-center py-4 text-muted">No API dispatch logs recorded yet. Push a cutting plan to see the API audit trail.</td>
+                    </tr>
+                }
+                @for (int i = 0; i < Model.Logs.Count; i++)
+                {
+                    var log = Model.Logs[i];
+                    <tr>
+                        <td class="small">@log.CreatedAt.ToString("dd-MMM-yyyy HH:mm:ss")</td>
+                        <td><span class="badge bg-light text-dark border">@log.ReferenceType</span></td>
+                        <td>
+                            <span class="badge bg-primary me-1">@log.HttpMethod</span>
+                            <code>@log.Endpoint</code>
+                        </td>
+                        <td>
+                            <span class="badge @(log.HttpStatusCode >= 200 && log.HttpStatusCode < 300 ? "bg-success" : "bg-danger")">
+                                @log.HttpStatusCode
+                            </span>
+                        </td>
+                        <td>
+                            @if (log.IsSuccess)
+                            {
+                                <span class="text-success fw-bold"><i class="bi bi-check-circle-fill me-1"></i> Success</span>
+                            }
+                            else
+                            {
+                                <span class="text-danger fw-bold"><i class="bi bi-x-circle-fill me-1"></i> Error</span>
+                            }
+                        </td>
+                        <td class="text-end">
+                            <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#logModal@(i)">
+                                <i class="bi bi-code-slash me-1"></i> View JSON
+                            </button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Log Inspection Modals -->
+@for (int i = 0; i < Model.Logs.Count; i++)
+{
+    var log = Model.Logs[i];
+    <div class="modal fade" id="logModal@(i)" tabindex="-1" aria-labelledby="logModalLabel@(i)" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header bg-dark text-white">
+                    <h5 class="modal-title" id="logModalLabel@(i)">
+                        <i class="bi bi-file-code me-2"></i> SAP B1 Service Layer Payload: @log.Endpoint
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <h6 class="fw-bold text-primary">HTTP Request Payload:</h6>
+                    <pre class="bg-light p-3 rounded small border" style="max-height: 250px; overflow-y: auto;"><code>@log.RequestPayload</code></pre>
+
+                    <h6 class="fw-bold text-success mt-3">HTTP Response Payload:</h6>
+                    <pre class="bg-light p-3 rounded small border" style="max-height: 250px; overflow-y: auto;"><code>@log.ResponsePayload</code></pre>
+
+                    @if (!string.IsNullOrEmpty(log.ErrorMessage))
+                    {
+                        <div class="alert alert-danger mt-3 mb-0 small">
+                            <strong>Error Details:</strong> @log.ErrorMessage
+                        </div>
+                    }
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}

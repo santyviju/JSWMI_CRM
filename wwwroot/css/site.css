@@ -1,0 +1,220 @@
+:root {
+    --jsw-primary: #0b2545;
+    --jsw-secondary: #134074;
+    --jsw-accent: #f77f00;
+    --jsw-accent-hover: #e06d00;
+    --jsw-blue: #0077b6;
+    --jsw-light: #eef4f8;
+    --jsw-card-bg: #ffffff;
+    --jsw-text: #1e293b;
+    --jsw-text-muted: #64748b;
+    --jsw-border: #e2e8f0;
+}
+
+body {
+    background-color: #f1f5f9;
+    color: var(--jsw-text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.main-content {
+    flex: 1;
+}
+
+/* Navbar */
+.jsw-navbar {
+    background: linear-gradient(135deg, #0b2545 0%, #134074 100%);
+    box-shadow: 0 4px 12px rgba(11, 37, 69, 0.15);
+    padding: 0.75rem 1.5rem;
+}
+
+.jsw-brand {
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    font-size: 1.25rem;
+    color: #ffffff !important;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.jsw-brand .brand-badge {
+    background-color: var(--jsw-accent);
+    color: #fff;
+    font-size: 0.7rem;
+    font-weight: 800;
+    padding: 2px 6px;
+    border-radius: 4px;
+    text-transform: uppercase;
+}
+
+.jsw-nav-link {
+    color: #e2e8f0 !important;
+    font-weight: 500;
+    padding: 0.5rem 1rem !important;
+    border-radius: 6px;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.jsw-nav-link:hover, .jsw-nav-link.active {
+    color: #ffffff !important;
+    background-color: rgba(255, 255, 255, 0.12);
+}
+
+/* Cards & Widgets */
+.stat-card {
+    background: #ffffff;
+    border-radius: 12px;
+    border: 1px solid var(--jsw-border);
+    padding: 1.25rem;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.stat-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
+}
+
+.stat-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+}
+
+.stat-icon.primary { background-color: #e0f2fe; color: #0284c7; }
+.stat-icon.success { background-color: #dcfce7; color: #16a34a; }
+.stat-icon.warning { background-color: #fef3c7; color: #d97706; }
+.stat-icon.orange { background-color: #ffedd5; color: #ea580c; }
+
+.jsw-card {
+    background: #ffffff;
+    border-radius: 12px;
+    border: 1px solid var(--jsw-border);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+    margin-bottom: 1.5rem;
+}
+
+.jsw-card-header {
+    background-color: #ffffff;
+    border-bottom: 1px solid var(--jsw-border);
+    padding: 1rem 1.25rem;
+    border-top-left-radius: 12px;
+    border-top-right-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.jsw-card-title {
+    font-weight: 600;
+    font-size: 1.1rem;
+    margin: 0;
+    color: var(--jsw-primary);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.table thead th {
+    background-color: #f8fafc;
+    color: #475569;
+    font-weight: 600;
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 2px solid var(--jsw-border);
+    vertical-align: middle;
+}
+
+.table tbody td {
+    vertical-align: middle;
+    font-size: 0.92rem;
+}
+
+/* Action Buttons */
+.btn-jsw {
+    background-color: var(--jsw-accent);
+    color: #ffffff;
+    font-weight: 600;
+    border: none;
+    border-radius: 8px;
+    padding: 0.5rem 1rem;
+    transition: background-color 0.2s;
+}
+
+.btn-jsw:hover {
+    background-color: var(--jsw-accent-hover);
+    color: #ffffff;
+}
+
+.btn-jsw-primary {
+    background-color: var(--jsw-primary);
+    color: #ffffff;
+    font-weight: 600;
+    border: none;
+    border-radius: 8px;
+    padding: 0.5rem 1rem;
+    transition: background-color 0.2s;
+}
+
+.btn-jsw-primary:hover {
+    background-color: var(--jsw-secondary);
+    color: #ffffff;
+}
+
+/* Badges */
+.badge-status {
+    padding: 0.35rem 0.65rem;
+    border-radius: 20px;
+    font-weight: 600;
+    font-size: 0.75rem;
+}
+
+.badge-draft { background-color: #e2e8f0; color: #475569; }
+.badge-synced { background-color: #dcfce7; color: #15803d; }
+.badge-pending { background-color: #fef3c7; color: #b45309; }
+.badge-error { background-color: #fee2e2; color: #b91c1c; }
+
+/* Mother coil visual diagram */
+.coil-gauge {
+    background: #f8fafc;
+    border: 1px dashed #cbd5e1;
+    border-radius: 8px;
+    padding: 1rem;
+}
+
+.slit-bar {
+    height: 34px;
+    display: flex;
+    border-radius: 6px;
+    overflow: hidden;
+    background-color: #e2e8f0;
+    margin: 0.5rem 0;
+}
+
+.slit-segment {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.75rem;
+    font-weight: bold;
+    color: #fff;
+    border-right: 1px solid rgba(255,255,255,0.4);
+    transition: width 0.3s ease;
+}
+
+.slit-scrap {
+    background-color: #ef4444;
+    color: #fff;
+}

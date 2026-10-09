@@ -1,0 +1,262 @@
+@page
+@model IndexModel
+@{
+    ViewData["Title"] = "CRM & Cutting Plan Dashboard";
+}
+
+@if (!string.IsNullOrEmpty(Model.SuccessMessage))
+{
+    <div class="alert alert-success alert-dismissible fade show d-flex align-items-center" role="alert">
+        <i class="bi bi-check-circle-fill me-2 fs-5"></i>
+        <div>@Model.SuccessMessage</div>
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+}
+
+@if (!string.IsNullOrEmpty(Model.ErrorMessage))
+{
+    <div class="alert alert-danger alert-dismissible fade show d-flex align-items-center" role="alert">
+        <i class="bi bi-exclamation-triangle-fill me-2 fs-5"></i>
+        <div>@Model.ErrorMessage</div>
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+}
+
+<!-- Welcome / Header Banner -->
+<div class="d-flex flex-wrap justify-content-between align-items-center mb-4">
+    <div>
+        <h2 class="fw-bold mb-1 text-primary">Steel Processing CRM Operations</h2>
+        <p class="text-muted mb-0">Manage customer sales orders, configure cutting plans, and push to SAP B1 Production Orders.</p>
+    </div>
+    <div class="d-flex gap-2 mt-2 mt-md-0">
+        <form method="post" asp-page-handler="FetchSapOrders">
+            <button type="submit" class="btn btn-outline-primary btn-sm">
+                <i class="bi bi-arrow-repeat me-1"></i> Sync Orders from SAP B1
+            </button>
+        </form>
+        <a asp-page="/CuttingPlans/Create" class="btn btn-jsw btn-sm">
+            <i class="bi bi-plus-lg me-1"></i> Create Cutting Plan
+        </a>
+    </div>
+</div>
+
+<!-- KPI Cards -->
+<div class="row g-3 mb-4">
+    <div class="col-12 col-sm-6 col-xl-3">
+        <div class="stat-card d-flex align-items-center justify-content-between">
+            <div>
+                <span class="text-muted small text-uppercase fw-bold">Active Sales Orders</span>
+                <h3 class="fw-bold my-1 text-dark">@Model.TotalSalesOrders</h3>
+                <span class="small text-muted"><i class="bi bi-building me-1"></i>Automotive & Appliance</span>
+            </div>
+            <div class="stat-icon primary">
+                <i class="bi bi-cart-check"></i>
+            </div>
+        </div>
+    </div>
+    <div class="col-12 col-sm-6 col-xl-3">
+        <div class="stat-card d-flex align-items-center justify-content-between">
+            <div>
+                <span class="text-muted small text-uppercase fw-bold">Cutting Plans</span>
+                <h3 class="fw-bold my-1 text-dark">@Model.TotalCuttingPlans</h3>
+                <span class="small text-warning"><i class="bi bi-hourglass-split me-1"></i>@Model.PendingSyncCount Pending Dispatch</span>
+            </div>
+            <div class="stat-icon orange">
+                <i class="bi bi-scissors"></i>
+            </div>
+        </div>
+    </div>
+    <div class="col-12 col-sm-6 col-xl-3">
+        <div class="stat-card d-flex align-items-center justify-content-between">
+            <div>
+                <span class="text-muted small text-uppercase fw-bold">SAP B1 Synced Orders</span>
+                <h3 class="fw-bold my-1 text-success">@Model.SyncedToSapCount</h3>
+                <span class="small text-success"><i class="bi bi-check2-all me-1"></i>Service Layer API</span>
+            </div>
+            <div class="stat-icon success">
+                <i class="bi bi-cloud-arrow-up"></i>
+            </div>
+        </div>
+    </div>
+    <div class="col-12 col-sm-6 col-xl-3">
+        <div class="stat-card d-flex align-items-center justify-content-between">
+            <div>
+                <span class="text-muted small text-uppercase fw-bold">Average Coil Yield</span>
+                <h3 class="fw-bold my-1 text-primary">@Model.AverageYieldPercentage%</h3>
+                <span class="small text-muted"><i class="bi bi-pie-chart me-1"></i>@Model.TotalTonnagePlanned.ToString("N2") MT Planned</span>
+            </div>
+            <div class="stat-icon warning">
+                <i class="bi bi-graph-up-arrow"></i>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Workflow Stepper Guide -->
+<div class="jsw-card mb-4 bg-light border-0">
+    <div class="p-3">
+        <div class="row text-center g-2 align-items-center">
+            <div class="col-md-3">
+                <div class="d-flex align-items-center justify-content-center gap-2">
+                    <span class="badge bg-primary rounded-circle p-2">1</span>
+                    <strong class="small">1. Select Sales Order</strong>
+                </div>
+                <div class="text-muted small">Choose customer SO & demand</div>
+            </div>
+            <div class="col-md-1 d-none d-md-block text-muted"><i class="bi bi-arrow-right"></i></div>
+            <div class="col-md-3">
+                <div class="d-flex align-items-center justify-content-center gap-2">
+                    <span class="badge bg-warning text-dark rounded-circle p-2">2</span>
+                    <strong class="small">2. Build Cutting Plan</strong>
+                </div>
+                <div class="text-muted small">Enter mother coil or import Excel</div>
+            </div>
+            <div class="col-md-1 d-none d-md-block text-muted"><i class="bi bi-arrow-right"></i></div>
+            <div class="col-md-3">
+                <div class="d-flex align-items-center justify-content-center gap-2">
+                    <span class="badge bg-success rounded-circle p-2">3</span>
+                    <strong class="small">3. Push to SAP B1 API</strong>
+                </div>
+                <div class="text-muted small">Create Production Order in SAP</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4">
+    <!-- Active Cutting Plans -->
+    <div class="col-12 col-xl-8">
+        <div class="jsw-card">
+            <div class="jsw-card-header">
+                <h5 class="jsw-card-title">
+                    <i class="bi bi-scissors text-warning"></i> Recent Cutting Plans & SAP Sync Status
+                </h5>
+                <a asp-page="/CuttingPlans/Index" class="btn btn-sm btn-outline-secondary">View All (@Model.TotalCuttingPlans)</a>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>Plan Code</th>
+                            <th>Sales Order</th>
+                            <th>Customer</th>
+                            <th>Mother Coil</th>
+                            <th>Yield</th>
+                            <th>SAP Status</th>
+                            <th class="text-end">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (Model.RecentCuttingPlans.Count == 0)
+                        {
+                            <tr>
+                                <td colspan="7" class="text-center py-4 text-muted">No cutting plans created yet. Click "Create Cutting Plan" to begin.</td>
+                            </tr>
+                        }
+                        @foreach (var plan in Model.RecentCuttingPlans)
+                        {
+                            <tr>
+                                <td>
+                                    <a asp-page="/CuttingPlans/Details" asp-route-id="@plan.Id" class="fw-bold text-decoration-none text-primary">
+                                        @plan.PlanCode
+                                    </a>
+                                    <div class="small text-muted">@plan.Grade</div>
+                                </td>
+                                <td>
+                                    <span class="badge bg-light text-dark border">@plan.SalesOrderDocNum</span>
+                                </td>
+                                <td class="text-truncate" style="max-width: 160px;" title="@plan.CustomerName">
+                                    @plan.CustomerName
+                                </td>
+                                <td>
+                                    <div>@plan.MotherCoilNo</div>
+                                    <div class="small text-muted">@plan.MotherWidth mm | @plan.MotherWeight MT</div>
+                                </td>
+                                <td>
+                                    <div class="d-flex align-items-center gap-2">
+                                        <div class="progress flex-grow-1" style="height: 6px; width: 60px;">
+                                            <div class="progress-bar @(plan.YieldPercentage >= 95 ? "bg-success" : (plan.YieldPercentage >= 85 ? "bg-primary" : "bg-warning"))" 
+                                                 role="progressbar" style="width: @plan.YieldPercentage%"></div>
+                                        </div>
+                                        <span class="small fw-bold">@plan.YieldPercentage%</span>
+                                    </div>
+                                </td>
+                                <td>
+                                    @if (plan.SapSyncStatus == "Synced")
+                                    {
+                                        <span class="badge badge-status badge-synced">
+                                            <i class="bi bi-check-circle me-1"></i> Synced (@plan.SapDocNum)
+                                        </span>
+                                    }
+                                    else if (plan.SapSyncStatus == "Failed")
+                                    {
+                                        <span class="badge badge-status badge-error" title="@plan.SapSyncMessage">
+                                            <i class="bi bi-x-circle me-1"></i> Failed
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge badge-status badge-pending">
+                                            <i class="bi bi-clock me-1"></i> Pending
+                                        </span>
+                                    }
+                                </td>
+                                <td class="text-end">
+                                    <div class="btn-group btn-group-sm">
+                                        <a asp-page="/CuttingPlans/Details" asp-route-id="@plan.Id" class="btn btn-outline-secondary" title="View Details">
+                                            <i class="bi bi-eye"></i>
+                                        </a>
+                                        @if (plan.SapSyncStatus != "Synced")
+                                        {
+                                            <form method="post" asp-page-handler="SyncToSap" asp-route-id="@plan.Id" class="d-inline">
+                                                <button type="submit" class="btn btn-success" title="Push to SAP B1 API">
+                                                    <i class="bi bi-cloud-upload"></i> Push SAP
+                                                </button>
+                                            </form>
+                                        }
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sales Orders Quick List -->
+    <div class="col-12 col-xl-4">
+        <div class="jsw-card">
+            <div class="jsw-card-header">
+                <h5 class="jsw-card-title">
+                    <i class="bi bi-receipt text-primary"></i> Open Sales Orders
+                </h5>
+                <a asp-page="/SalesOrders/Index" class="btn btn-sm btn-outline-secondary">All Orders</a>
+            </div>
+            <div class="p-3">
+                @if (Model.RecentSalesOrders.Count == 0)
+                {
+                    <div class="text-center py-4 text-muted">No sales orders found.</div>
+                }
+                @foreach (var so in Model.RecentSalesOrders)
+                {
+                    <div class="card mb-2 border-0 bg-light p-2 rounded-3">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div>
+                                <strong class="text-primary">@so.DocNum</strong>
+                                <span class="badge bg-secondary ms-1 small">@so.Status</span>
+                                <div class="text-dark small fw-semibold text-truncate" style="max-width: 220px;">@so.CardName</div>
+                                <div class="text-muted small">Due: @so.DocDueDate.ToString("dd-MMM-yyyy")</div>
+                            </div>
+                            <div>
+                                <a asp-page="/CuttingPlans/Create" asp-route-salesOrderId="@so.Id" class="btn btn-jsw btn-sm" title="Create Cutting Plan">
+                                    <i class="bi bi-scissors me-1"></i> Plan
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+</div>

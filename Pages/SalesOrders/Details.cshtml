@@ -1,0 +1,162 @@
+@page "{id}"
+@model JSWMI_CRM.Pages.SalesOrders.DetailsModel
+@{
+    ViewData["Title"] = $"Sales Order {Model.Order?.DocNum}";
+}
+
+@if (Model.Order == null)
+{
+    <div class="alert alert-danger">Sales Order not found.</div>
+    return;
+}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb mb-1">
+                <li class="breadcrumb-item"><a asp-page="/SalesOrders/Index">Sales Orders</a></li>
+                <li class="breadcrumb-item active" aria-current="page">@Model.Order.DocNum</li>
+            </ol>
+        </nav>
+        <h2 class="fw-bold mb-0 text-primary">Sales Order: @Model.Order.DocNum</h2>
+    </div>
+    <div class="d-flex gap-2">
+        <a asp-page="/CuttingPlans/Create" asp-route-salesOrderId="@Model.Order.Id" class="btn btn-jsw">
+            <i class="bi bi-scissors me-1"></i> Create Cutting Plan
+        </a>
+        <a asp-page="/SalesOrders/Index" class="btn btn-outline-secondary">Back to List</a>
+    </div>
+</div>
+
+<div class="row g-4 mb-4">
+    <div class="col-12 col-lg-8">
+        <div class="jsw-card">
+            <div class="jsw-card-header">
+                <h5 class="jsw-card-title"><i class="bi bi-info-circle text-primary"></i> Order Information</h5>
+                <span class="badge bg-success-subtle text-success border">@Model.Order.Status</span>
+            </div>
+            <div class="p-3">
+                <div class="row g-3">
+                    <div class="col-sm-6">
+                        <span class="text-muted small">Customer Name:</span>
+                        <div class="fw-bold fs-6">@Model.Order.CardName</div>
+                    </div>
+                    <div class="col-sm-6">
+                        <span class="text-muted small">Customer Code (CardCode):</span>
+                        <div><code>@Model.Order.CardCode</code></div>
+                    </div>
+                    <div class="col-sm-4">
+                        <span class="text-muted small">Order Date:</span>
+                        <div class="fw-semibold">@Model.Order.DocDate.ToString("dd-MMM-yyyy")</div>
+                    </div>
+                    <div class="col-sm-4">
+                        <span class="text-muted small">Delivery Due Date:</span>
+                        <div class="fw-semibold text-primary">@Model.Order.DocDueDate.ToString("dd-MMM-yyyy")</div>
+                    </div>
+                    <div class="col-sm-4">
+                        <span class="text-muted small">Total Value:</span>
+                        <div class="fw-bold fs-5 text-dark">₹ @Model.Order.DocTotal.ToString("N2")</div>
+                    </div>
+                    <div class="col-12">
+                        <span class="text-muted small">Remarks & Requirements:</span>
+                        <div class="p-2 bg-light rounded text-muted mt-1">
+                            @(string.IsNullOrWhiteSpace(Model.Order.Remarks) ? "No remarks provided" : Model.Order.Remarks)
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Order Items -->
+        <div class="jsw-card">
+            <div class="jsw-card-header">
+                <h5 class="jsw-card-title"><i class="bi bi-list-check text-primary"></i> Order Demand Items</h5>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>Line #</th>
+                            <th>Item Code</th>
+                            <th>Description</th>
+                            <th>Ordered Qty</th>
+                            <th>Open Qty</th>
+                            <th>Unit Price</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (Model.Order.Items.Count == 0)
+                        {
+                            <tr>
+                                <td colspan="6" class="text-center py-3 text-muted">No line items specified for this sales order.</td>
+                            </tr>
+                        }
+                        @foreach (var item in Model.Order.Items)
+                        {
+                            <tr>
+                                <td>@item.LineNum</td>
+                                <td><code>@item.ItemCode</code></td>
+                                <td>@item.ItemDescription</td>
+                                <td><span class="fw-bold">@item.Quantity.ToString("N3")</span> @item.Uom</td>
+                                <td><span class="text-primary fw-bold">@item.OpenQty.ToString("N3")</span> @item.Uom</td>
+                                <td>₹ @item.UnitPrice.ToString("N2")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Linked Cutting Plans -->
+    <div class="col-12 col-lg-4">
+        <div class="jsw-card">
+            <div class="jsw-card-header">
+                <h5 class="jsw-card-title"><i class="bi bi-scissors text-warning"></i> Linked Cutting Plans (@Model.LinkedCuttingPlans.Count)</h5>
+            </div>
+            <div class="p-3">
+                @if (Model.LinkedCuttingPlans.Count == 0)
+                {
+                    <div class="text-center py-4 text-muted">
+                        <i class="bi bi-scissors fs-1 d-block text-secondary opacity-50 mb-2"></i>
+                        No cutting plans configured for this Sales Order yet.
+                        <div class="mt-3">
+                            <a asp-page="/CuttingPlans/Create" asp-route-salesOrderId="@Model.Order.Id" class="btn btn-jsw btn-sm">
+                                <i class="bi bi-plus-lg me-1"></i> Configure Cutting Plan
+                            </a>
+                        </div>
+                    </div>
+                }
+                @foreach (var plan in Model.LinkedCuttingPlans)
+                {
+                    <div class="card mb-3 border shadow-sm">
+                        <div class="card-body p-3">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <a asp-page="/CuttingPlans/Details" asp-route-id="@plan.Id" class="fw-bold text-primary text-decoration-none">
+                                    @plan.PlanCode
+                                </a>
+                                @if (plan.SapSyncStatus == "Synced")
+                                {
+                                    <span class="badge badge-status badge-synced">Synced</span>
+                                }
+                                else
+                                {
+                                    <span class="badge badge-status badge-pending">Pending</span>
+                                }
+                            </div>
+                            <div class="small text-muted mb-1">
+                                <strong>Mother Coil:</strong> @plan.MotherCoilNo (@plan.MotherWidth mm)
+                            </div>
+                            <div class="small text-muted mb-2">
+                                <strong>Yield:</strong> @plan.YieldPercentage% | <strong>Weight:</strong> @plan.TotalOutputWeight MT
+                            </div>
+                            <a asp-page="/CuttingPlans/Details" asp-route-id="@plan.Id" class="btn btn-outline-secondary btn-sm w-100">
+                                View Cutting Plan
+                            </a>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+</div>

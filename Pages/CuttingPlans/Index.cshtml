@@ -1,0 +1,176 @@
+@page
+@model JSWMI_CRM.Pages.CuttingPlans.IndexModel
+@{
+    ViewData["Title"] = "Cutting Plans";
+}
+
+@if (!string.IsNullOrEmpty(Model.SuccessMessage))
+{
+    <div class="alert alert-success alert-dismissible fade show d-flex align-items-center" role="alert">
+        <i class="bi bi-check-circle-fill me-2 fs-5"></i>
+        <div>@Model.SuccessMessage</div>
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+}
+
+@if (!string.IsNullOrEmpty(Model.ErrorMessage))
+{
+    <div class="alert alert-danger alert-dismissible fade show d-flex align-items-center" role="alert">
+        <i class="bi bi-exclamation-triangle-fill me-2 fs-5"></i>
+        <div>@Model.ErrorMessage</div>
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+}
+
+<div class="d-flex flex-wrap justify-content-between align-items-center mb-4">
+    <div>
+        <h2 class="fw-bold mb-1 text-primary"><i class="bi bi-scissors"></i> Steel Cutting Plans</h2>
+        <p class="text-muted mb-0">Mother coil slitting and shearing optimization schedules mapped to customer sales orders.</p>
+    </div>
+    <div class="d-flex gap-2 mt-2 mt-md-0">
+        <a asp-page="/CuttingPlans/DownloadTemplate" class="btn btn-outline-secondary">
+            <i class="bi bi-download me-1"></i> Excel/CSV Template
+        </a>
+        <a asp-page="/CuttingPlans/Create" class="btn btn-jsw">
+            <i class="bi bi-plus-lg me-1"></i> Create Cutting Plan
+        </a>
+    </div>
+</div>
+
+<div class="jsw-card">
+    <div class="jsw-card-header bg-light">
+        <form method="get" class="row g-2 w-100 align-items-center">
+            <div class="col-12 col-md-5">
+                <div class="input-group">
+                    <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
+                    <input type="text" name="SearchTerm" value="@Model.SearchTerm" class="form-control" placeholder="Search Plan Code, Mother Coil, Sales Order..." />
+                    <button type="submit" class="btn btn-primary">Search</button>
+                </div>
+            </div>
+            <div class="col-12 col-md-3">
+                <select name="StatusFilter" onchange="this.form.submit()" class="form-select">
+                    <option value="">All SAP Sync Statuses</option>
+                    <option value="Synced" selected="@(Model.StatusFilter == "Synced")">Synced to SAP B1</option>
+                    <option value="Pending" selected="@(Model.StatusFilter == "Pending")">Pending SAP Sync</option>
+                    <option value="Failed" selected="@(Model.StatusFilter == "Failed")">Sync Failed / Error</option>
+                </select>
+            </div>
+            @if (!string.IsNullOrEmpty(Model.SearchTerm) || !string.IsNullOrEmpty(Model.StatusFilter))
+            {
+                <div class="col-auto">
+                    <a asp-page="/CuttingPlans/Index" class="btn btn-outline-secondary">Reset Filters</a>
+                </div>
+            }
+        </form>
+    </div>
+
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+            <thead>
+                <tr>
+                    <th>Plan Code</th>
+                    <th>Sales Order</th>
+                    <th>Customer Name</th>
+                    <th>Mother Coil Details</th>
+                    <th>Output Specs</th>
+                    <th>Yield / Scrap</th>
+                    <th>SAP B1 Status</th>
+                    <th class="text-end">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (Model.CuttingPlans.Count == 0)
+                {
+                    <tr>
+                        <td colspan="8" class="text-center py-5 text-muted">
+                            <i class="bi bi-scissors fs-1 d-block mb-2 text-secondary opacity-50"></i>
+                            No cutting plans found.
+                            <div class="mt-2">
+                                <a asp-page="/CuttingPlans/Create" class="btn btn-jsw btn-sm">Create New Plan</a>
+                            </div>
+                        </td>
+                    </tr>
+                }
+                @foreach (var plan in Model.CuttingPlans)
+                {
+                    <tr>
+                        <td>
+                            <a asp-page="/CuttingPlans/Details" asp-route-id="@plan.Id" class="fw-bold text-decoration-none text-primary">
+                                @plan.PlanCode
+                            </a>
+                            <div class="small text-muted">@plan.CreatedAt.ToString("dd-MMM-yyyy HH:mm")</div>
+                        </td>
+                        <td>
+                            <span class="badge bg-light text-dark border">@plan.SalesOrderDocNum</span>
+                        </td>
+                        <td>
+                            <div class="fw-semibold text-truncate" style="max-width: 180px;" title="@plan.CustomerName">
+                                @plan.CustomerName
+                            </div>
+                        </td>
+                        <td>
+                            <div class="fw-medium">@plan.MotherCoilNo</div>
+                            <div class="small text-muted">
+                                @plan.Grade | @plan.MotherWidth mm | @plan.MotherWeight MT
+                            </div>
+                        </td>
+                        <td>
+                            <div><span class="fw-bold">@plan.Lines.Count</span> slits / cuts</div>
+                            <div class="small text-muted">@plan.TotalOutputWidth mm output</div>
+                        </td>
+                        <td>
+                            <div class="d-flex align-items-center gap-2">
+                                <div class="progress flex-grow-1" style="height: 6px; width: 60px;">
+                                    <div class="progress-bar @(plan.YieldPercentage >= 95 ? "bg-success" : (plan.YieldPercentage >= 85 ? "bg-primary" : "bg-warning"))" 
+                                         role="progressbar" style="width: @plan.YieldPercentage%"></div>
+                                </div>
+                                <span class="small fw-bold">@plan.YieldPercentage%</span>
+                            </div>
+                            <div class="small text-muted">Scrap: @plan.ScrapWidth mm</div>
+                        </td>
+                        <td>
+                            @if (plan.SapSyncStatus == "Synced")
+                            {
+                                <span class="badge badge-status badge-synced">
+                                    <i class="bi bi-check-circle me-1"></i> Synced (@plan.SapDocNum)
+                                </span>
+                            }
+                            else if (plan.SapSyncStatus == "Failed")
+                            {
+                                <span class="badge badge-status badge-error" title="@plan.SapSyncMessage">
+                                    <i class="bi bi-x-circle me-1"></i> Failed
+                                </span>
+                            }
+                            else
+                            {
+                                <span class="badge badge-status badge-pending">
+                                    <i class="bi bi-clock me-1"></i> Ready / Pending
+                                </span>
+                            }
+                        </td>
+                        <td class="text-end">
+                            <div class="btn-group btn-group-sm">
+                                <a asp-page="/CuttingPlans/Details" asp-route-id="@plan.Id" class="btn btn-outline-secondary" title="View Details">
+                                    <i class="bi bi-eye"></i>
+                                </a>
+                                @if (plan.SapSyncStatus != "Synced")
+                                {
+                                    <form method="post" asp-page-handler="SyncToSap" asp-route-id="@plan.Id" class="d-inline">
+                                        <button type="submit" class="btn btn-success" title="Push to SAP B1 API">
+                                            <i class="bi bi-cloud-upload"></i> Push SAP
+                                        </button>
+                                    </form>
+                                }
+                                <form method="post" asp-page-handler="Delete" asp-route-id="@plan.Id" class="d-inline" onsubmit="return confirm('Are you sure you want to delete this cutting plan?');">
+                                    <button type="submit" class="btn btn-outline-danger" title="Delete">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </form>
+                            </div>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>

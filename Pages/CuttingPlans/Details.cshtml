@@ -1,0 +1,306 @@
+@page "{id}"
+@model JSWMI_CRM.Pages.CuttingPlans.DetailsModel
+@{
+    ViewData["Title"] = $"Cutting Plan {Model.Plan?.PlanCode}";
+}
+
+@if (Model.Plan == null)
+{
+    <div class="alert alert-danger">Cutting Plan not found.</div>
+    return;
+}
+
+@if (!string.IsNullOrEmpty(Model.SuccessMessage))
+{
+    <div class="alert alert-success alert-dismissible fade show d-flex align-items-center" role="alert">
+        <i class="bi bi-check-circle-fill me-2 fs-5"></i>
+        <div>@Model.SuccessMessage</div>
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+}
+
+@if (!string.IsNullOrEmpty(Model.ErrorMessage))
+{
+    <div class="alert alert-danger alert-dismissible fade show d-flex align-items-center" role="alert">
+        <i class="bi bi-exclamation-triangle-fill me-2 fs-5"></i>
+        <div>@Model.ErrorMessage</div>
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+}
+
+<div class="d-flex flex-wrap justify-content-between align-items-center mb-4">
+    <div>
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb mb-1">
+                <li class="breadcrumb-item"><a asp-page="/CuttingPlans/Index">Cutting Plans</a></li>
+                <li class="breadcrumb-item active" aria-current="page">@Model.Plan.PlanCode</li>
+            </ol>
+        </nav>
+        <div class="d-flex align-items-center gap-3">
+            <h2 class="fw-bold mb-0 text-primary">@Model.Plan.PlanCode</h2>
+            @if (Model.Plan.SapSyncStatus == "Synced")
+            {
+                <span class="badge badge-status badge-synced fs-6">
+                    <i class="bi bi-check-circle-fill me-1"></i> Synced to SAP B1 (@Model.Plan.SapDocNum)
+                </span>
+            }
+            else if (Model.Plan.SapSyncStatus == "Failed")
+            {
+                <span class="badge badge-status badge-error fs-6">
+                    <i class="bi bi-x-circle-fill me-1"></i> SAP Sync Error
+                </span>
+            }
+            else
+            {
+                <span class="badge badge-status badge-pending fs-6">
+                    <i class="bi bi-clock-fill me-1"></i> Pending SAP Sync
+                </span>
+            }
+        </div>
+    </div>
+    <div class="d-flex gap-2 mt-2 mt-md-0">
+        @if (Model.Plan.SapSyncStatus != "Synced")
+        {
+            <form method="post" asp-page-handler="SyncToSap" asp-route-id="@Model.Plan.Id">
+                <button type="submit" class="btn btn-success">
+                    <i class="bi bi-cloud-arrow-up me-1"></i> Import into SAP B1 API
+                </button>
+            </form>
+        }
+        else
+        {
+            <form method="post" asp-page-handler="SyncToSap" asp-route-id="@Model.Plan.Id">
+                <button type="submit" class="btn btn-outline-success btn-sm">
+                    <i class="bi bi-arrow-repeat me-1"></i> Re-sync to SAP B1
+                </button>
+            </form>
+        }
+        <button class="btn btn-outline-secondary" onclick="window.print()">
+            <i class="bi bi-printer me-1"></i> Print Plan
+        </button>
+        <a asp-page="/CuttingPlans/Index" class="btn btn-outline-secondary">Back to List</a>
+    </div>
+</div>
+
+<!-- SAP B1 Sync Status Callout -->
+<div class="jsw-card mb-4 @(Model.Plan.SapSyncStatus == "Synced" ? "border-success-subtle bg-light" : "border-warning-subtle bg-light")">
+    <div class="p-3">
+        <div class="d-flex flex-wrap align-items-center justify-content-between">
+            <div class="d-flex align-items-center gap-3">
+                <div class="stat-icon @(Model.Plan.SapSyncStatus == "Synced" ? "success" : "warning")">
+                    <i class="bi @(Model.Plan.SapSyncStatus == "Synced" ? "bi-check2-circle" : "bi-clock-history")"></i>
+                </div>
+                <div>
+                    <h6 class="fw-bold mb-1">
+                        SAP Business One Service Layer Status: 
+                        <span class="@(Model.Plan.SapSyncStatus == "Synced" ? "text-success" : "text-warning")">@Model.Plan.SapSyncStatus</span>
+                    </h6>
+                    <div class="small text-muted">
+                        @if (Model.Plan.SapSyncStatus == "Synced")
+                        {
+                            <span>Production Order DocEntry: <strong>#@Model.Plan.SapDocEntry</strong> | Document Number: <strong>@Model.Plan.SapDocNum</strong> | Synced At: <strong>@Model.Plan.SapSyncTimestamp?.ToString("dd-MMM-yyyy HH:mm:ss") UTC</strong></span>
+                        }
+                        else
+                        {
+                            <span>@(Model.Plan.SapSyncMessage ?? "This cutting plan is validated in Supabase and ready for import into SAP B1.")</span>
+                        }
+                    </div>
+                </div>
+            </div>
+            <div class="mt-2 mt-md-0">
+                <a asp-page="/SapIntegration/Index" class="btn btn-sm btn-outline-primary">
+                    <i class="bi bi-journal-text me-1"></i> View Audit Logs
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4 mb-4">
+    <!-- Mother Coil Specifications Card -->
+    <div class="col-12 col-lg-6">
+        <div class="jsw-card h-100">
+            <div class="jsw-card-header">
+                <h5 class="jsw-card-title"><i class="bi bi-disc text-primary"></i> Mother Coil Specifications</h5>
+            </div>
+            <div class="p-3">
+                <div class="row g-3">
+                    <div class="col-sm-6">
+                        <span class="text-muted small">Mother Coil Number:</span>
+                        <div class="fw-bold fs-6">@Model.Plan.MotherCoilNo</div>
+                    </div>
+                    <div class="col-sm-6">
+                        <span class="text-muted small">Heat / Cast Number:</span>
+                        <div class="fw-bold">@Model.Plan.HeatNo</div>
+                    </div>
+                    <div class="col-sm-6">
+                        <span class="text-muted small">Steel Grade:</span>
+                        <div><span class="badge bg-secondary">@Model.Plan.Grade</span></div>
+                    </div>
+                    <div class="col-sm-6">
+                        <span class="text-muted small">Thickness:</span>
+                        <div class="fw-semibold">@Model.Plan.MotherThickness.ToString("N2") mm</div>
+                    </div>
+                    <div class="col-sm-6">
+                        <span class="text-muted small">Mother Coil Width:</span>
+                        <div class="fw-bold fs-5 text-dark">@Model.Plan.MotherWidth.ToString("N1") mm</div>
+                    </div>
+                    <div class="col-sm-6">
+                        <span class="text-muted small">Mother Coil Weight:</span>
+                        <div class="fw-bold fs-5 text-primary">@Model.Plan.MotherWeight.ToString("N3") MT</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sales Order Details Card -->
+    <div class="col-12 col-lg-6">
+        <div class="jsw-card h-100">
+            <div class="jsw-card-header">
+                <h5 class="jsw-card-title"><i class="bi bi-receipt text-primary"></i> Associated Sales Order</h5>
+                <a asp-page="/SalesOrders/Details" asp-route-id="@Model.Plan.SalesOrderId" class="btn btn-sm btn-outline-primary">View SO</a>
+            </div>
+            <div class="p-3">
+                <div class="row g-3">
+                    <div class="col-sm-6">
+                        <span class="text-muted small">Sales Order Document No:</span>
+                        <div class="fw-bold fs-6 text-primary">@Model.Plan.SalesOrderDocNum</div>
+                    </div>
+                    <div class="col-sm-6">
+                        <span class="text-muted small">Customer Name:</span>
+                        <div class="fw-semibold">@Model.Plan.CustomerName</div>
+                    </div>
+                    <div class="col-12">
+                        <span class="text-muted small">Planner Remarks:</span>
+                        <div class="p-2 bg-light rounded text-muted mt-1 small">
+                            @(string.IsNullOrEmpty(Model.Plan.Remarks) ? "No remarks entered" : Model.Plan.Remarks)
+                        </div>
+                    </div>
+                    <div class="col-sm-6">
+                        <span class="text-muted small">Created By:</span>
+                        <div>@Model.Plan.CreatedBy</div>
+                    </div>
+                    <div class="col-sm-6">
+                        <span class="text-muted small">Created Date:</span>
+                        <div>@Model.Plan.CreatedAt.ToString("dd-MMM-yyyy HH:mm")</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Slit Cross-Section Visual Gauge -->
+    <div class="col-12">
+        <div class="jsw-card">
+            <div class="jsw-card-header">
+                <h5 class="jsw-card-title"><i class="bi bi-bar-chart-steps text-primary"></i> Mother Coil Width Allocation & Slit Diagram</h5>
+            </div>
+            <div class="p-3">
+                <div class="row g-3 align-items-center mb-3">
+                    <div class="col-sm-3">
+                        <span class="text-muted small text-uppercase">Mother Width</span>
+                        <div class="fw-bold fs-5 text-dark">@Model.Plan.MotherWidth.ToString("N1") mm</div>
+                    </div>
+                    <div class="col-sm-3">
+                        <span class="text-muted small text-uppercase">Total Slit Width</span>
+                        <div class="fw-bold fs-5 text-primary">@Model.Plan.TotalOutputWidth.ToString("N1") mm</div>
+                    </div>
+                    <div class="col-sm-3">
+                        <span class="text-muted small text-uppercase">Scrap Trim Width</span>
+                        <div class="fw-bold fs-5 text-danger">@Model.Plan.ScrapWidth.ToString("N1") mm</div>
+                    </div>
+                    <div class="col-sm-3">
+                        <span class="text-muted small text-uppercase">Yield Recovery %</span>
+                        <div class="fw-bold fs-5 text-success">@Model.Plan.YieldPercentage.ToString("N1")%</div>
+                    </div>
+                </div>
+
+                <div class="d-flex justify-content-between small text-muted mb-1">
+                    <span>Edge A (0 mm)</span>
+                    <span>Proportional Cross-Section Slitting Bar</span>
+                    <span>Edge B (@Model.Plan.MotherWidth.ToString("N0") mm)</span>
+                </div>
+                <div class="slit-bar">
+                    @{
+                        string[] colors = { "#0284c7", "#0d9488", "#2563eb", "#7c3aed", "#059669", "#d97706" };
+                        int colorIdx = 0;
+                        foreach (var line in Model.Plan.Lines)
+                        {
+                            var totalLineW = line.CutWidth * line.Quantity;
+                            var pct = Model.Plan.MotherWidth > 0 ? (totalLineW / Model.Plan.MotherWidth) * 100 : 0;
+                            var col = colors[colorIdx % colors.Length];
+                            colorIdx++;
+
+                            <div class="slit-segment" style="width: @pct%; background-color: @col;" title="Line @line.LineNum: @line.OutputItemCode (@totalLineW mm)">
+                                @line.CutWidth.ToString("N0")mm @(line.Quantity > 1 ? $"x{line.Quantity}" : "")
+                            </div>
+                        }
+
+                        if (Model.Plan.ScrapWidth > 0)
+                        {
+                            var scrapPct = Model.Plan.MotherWidth > 0 ? (Model.Plan.ScrapWidth / Model.Plan.MotherWidth) * 100 : 0;
+                            <div class="slit-segment slit-scrap" style="width: @scrapPct%;" title="Side Trim / Scrap: @Model.Plan.ScrapWidth mm">
+                                Scrap @Model.Plan.ScrapWidth.ToString("N0")mm
+                            </div>
+                        }
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Slitting / Shearing Line Items Table -->
+    <div class="col-12">
+        <div class="jsw-card">
+            <div class="jsw-card-header">
+                <h5 class="jsw-card-title"><i class="bi bi-list-ol text-primary"></i> Output Slit Specification Lines (@Model.Plan.Lines.Count)</h5>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-hover table-striped align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>Line #</th>
+                            <th>Output Item Code</th>
+                            <th>Description</th>
+                            <th>Cut Width (mm)</th>
+                            <th>Cut Length (mm)</th>
+                            <th>Qty (Cuts)</th>
+                            <th>Target Weight (MT)</th>
+                            <th>Tolerance</th>
+                            <th>Edge Condition</th>
+                            <th>Remarks</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var line in Model.Plan.Lines)
+                        {
+                            <tr>
+                                <td class="fw-bold">@line.LineNum</td>
+                                <td><code>@line.OutputItemCode</code></td>
+                                <td>@line.OutputDescription</td>
+                                <td><span class="fw-bold text-primary">@line.CutWidth.ToString("N1")</span> mm</td>
+                                <td>@(line.CutLength > 0 ? $"{line.CutLength.ToString("N1")} mm" : "Coil (0)")</td>
+                                <td><span class="badge bg-secondary">@line.Quantity</span></td>
+                                <td><span class="fw-bold">@line.TargetWeight.ToString("N3")</span> MT</td>
+                                <td>@line.Tolerance</td>
+                                <td><span class="badge bg-light text-dark border">@line.EdgeCondition</span></td>
+                                <td class="small text-muted">@line.Remarks</td>
+                            </tr>
+                        }
+                    </tbody>
+                    <tfoot class="table-light">
+                        <tr class="fw-bold">
+                            <td colspan="3" class="text-end">Total Output:</td>
+                            <td class="text-primary">@Model.Plan.TotalOutputWidth.ToString("N1") mm</td>
+                            <td>-</td>
+                            <td>@Model.Plan.Lines.Sum(x => x.Quantity) cuts</td>
+                            <td class="text-success">@Model.Plan.TotalOutputWeight.ToString("N3") MT</td>
+                            <td colspan="3">Yield: @Model.Plan.YieldPercentage.ToString("N1")%</td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>

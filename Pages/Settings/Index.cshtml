@@ -1,0 +1,237 @@
+@page
+@model JSWMI_CRM.Pages.Settings.IndexModel
+@{
+    ViewData["Title"] = "System Settings & Cloud Database";
+}
+
+@if (!string.IsNullOrEmpty(Model.SuccessMessage))
+{
+    <div class="alert alert-success alert-dismissible fade show d-flex align-items-center" role="alert">
+        <i class="bi bi-check-circle-fill me-2 fs-5"></i>
+        <div>@Model.SuccessMessage</div>
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+}
+
+@if (!string.IsNullOrEmpty(Model.ErrorMessage))
+{
+    <div class="alert alert-danger alert-dismissible fade show d-flex align-items-center" role="alert">
+        <i class="bi bi-exclamation-triangle-fill me-2 fs-5"></i>
+        <div>@Model.ErrorMessage</div>
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h2 class="fw-bold mb-1 text-primary"><i class="bi bi-gear-fill"></i> Cloud Backend & System Settings</h2>
+        <p class="text-muted mb-0">Configure Supabase PostgreSQL in Cloud and SAP Business One Service Layer connection parameters.</p>
+    </div>
+</div>
+
+<ul class="nav nav-pills mb-4" id="settingsTabs" role="tablist">
+    <li class="nav-item" role="presentation">
+        <button class="nav-link active px-4" id="supabase-tab" data-bs-toggle="pill" data-bs-target="#tab-supabase" type="button" role="tab">
+            <i class="bi bi-database me-1"></i> Supabase Cloud Backend
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link px-4" id="sap-tab" data-bs-toggle="pill" data-bs-target="#tab-sap" type="button" role="tab">
+            <i class="bi bi-cpu me-1"></i> SAP Business One API
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link px-4" id="schema-tab" data-bs-toggle="pill" data-bs-target="#tab-schema" type="button" role="tab">
+            <i class="bi bi-file-earmark-code me-1"></i> Supabase SQL Schema Script
+        </button>
+    </li>
+</ul>
+
+<div class="tab-content" id="settingsTabContent">
+    <!-- Tab 1: Supabase Cloud -->
+    <div class="tab-pane fade show active" id="tab-supabase" role="tabpanel">
+        <div class="row g-4">
+            <div class="col-12 col-lg-8">
+                <div class="jsw-card">
+                    <div class="jsw-card-header">
+                        <h5 class="jsw-card-title"><i class="bi bi-cloud text-primary"></i> Supabase Cloud Connection Parameters</h5>
+                    </div>
+                    <div class="p-3">
+                        <form method="post" asp-page-handler="SaveSupabase">
+                            <div class="mb-3">
+                                <label class="form-label fw-bold">Supabase Project URL *</label>
+                                <input type="url" asp-for="SupaConfig.Url" class="form-control" placeholder="https://your-project.supabase.co" required />
+                                <div class="form-text">Found in Supabase Dashboard -> Project Settings -> API -> Project URL</div>
+                            </div>
+
+                            <div class="mb-3">
+                                <label class="form-label fw-bold">Supabase API Key (Anon / Service Role) *</label>
+                                <input type="password" asp-for="SupaConfig.Key" class="form-control" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6..." required />
+                                <div class="form-text">Found in Supabase Dashboard -> Project Settings -> API -> anon / public key</div>
+                            </div>
+
+                            <div class="mb-3">
+                                <label class="form-label fw-bold">Direct PostgreSQL Connection String (Optional)</label>
+                                <input type="text" asp-for="SupaConfig.ConnectionString" class="form-control font-monospace small" placeholder="Server=aws-0-ap-south-1.pooler.supabase.com;Port=6543;Database=postgres;..." />
+                                <div class="form-text">Used for direct PostgreSQL queries / migrations via Npgsql if desired.</div>
+                            </div>
+
+                            <div class="form-check form-switch mb-4 p-2 bg-light rounded d-flex align-items-center gap-3">
+                                <input class="form-check-input ms-0" type="checkbox" role="switch" asp-for="SupaConfig.UseCloudStorage" id="useCloudSwitch">
+                                <label class="form-check-label fw-bold" for="useCloudSwitch">
+                                    Enable Direct Supabase Cloud Storage (otherwise uses local resilient cache)
+                                </label>
+                            </div>
+
+                            <div class="d-flex gap-2">
+                                <button type="submit" class="btn btn-primary">Save Supabase Configuration</button>
+                                <button type="submit" asp-page-handler="TestSupabase" class="btn btn-outline-primary">
+                                    <i class="bi bi-lightning-charge me-1"></i> Test Supabase Connection
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-12 col-lg-4">
+                <div class="jsw-card">
+                    <div class="jsw-card-header">
+                        <h5 class="jsw-card-title"><i class="bi bi-info-circle text-primary"></i> Supabase Setup Guide</h5>
+                    </div>
+                    <div class="p-3 small text-muted">
+                        <p>To connect your own Supabase project in the cloud:</p>
+                        <ol class="ps-3 mb-3">
+                            <li>Sign up / log in to <a href="https://supabase.com" target="_blank" rel="noopener">supabase.com</a>.</li>
+                            <li>Create a new project (e.g. <code>JSWMI_CRM</code>).</li>
+                            <li>Navigate to the <strong>SQL Editor</strong> tab on Supabase.</li>
+                            <li>Switch to the <em>"Supabase SQL Schema Script"</em> tab above, copy the SQL, paste it in Supabase, and click <strong>Run</strong>.</li>
+                            <li>Copy the <strong>Project URL</strong> &amp; <strong>anon key</strong> from API Settings into the form on the left.</li>
+                        </ol>
+                        <div class="alert alert-info py-2 small mb-0">
+                            <i class="bi bi-shield-check me-1"></i> The application includes an in-memory seed cache so you can test all features even before setting up Supabase!
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tab 2: SAP B1 Service Layer -->
+    <div class="tab-pane fade" id="tab-sap" role="tabpanel">
+        <div class="row g-4">
+            <div class="col-12 col-lg-8">
+                <div class="jsw-card">
+                    <div class="jsw-card-header">
+                        <h5 class="jsw-card-title"><i class="bi bi-cpu text-primary"></i> SAP Business One Service Layer Settings</h5>
+                    </div>
+                    <div class="p-3">
+                        <form method="post" asp-page-handler="SaveSap">
+                            <div class="mb-3">
+                                <label class="form-label fw-bold">Service Layer HTTPS Endpoint *</label>
+                                <input type="url" asp-for="SapConfig.ServiceLayerUrl" class="form-control" placeholder="https://sapb1server:50000/b1s/v1/" required />
+                                <div class="form-text">e.g. <code>https://sapb1server.corp.jsw.in:50000/b1s/v1/</code></div>
+                            </div>
+
+                            <div class="row g-3 mb-3">
+                                <div class="col-md-6">
+                                    <label class="form-label fw-bold">Company Database (CompanyDB) *</label>
+                                    <input type="text" asp-for="SapConfig.CompanyDB" class="form-control" placeholder="JSWMI_PROD" required />
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label fw-bold">Target SAP Document Type</label>
+                                    <select asp-for="SapConfig.TargetDocumentType" class="form-select">
+                                        <option value="ProductionOrder">Production Order (Disassembly / Slitting)</option>
+                                        <option value="CustomUDO">Custom User Defined Object (UDO)</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label fw-bold">SAP User Name *</label>
+                                    <input type="text" asp-for="SapConfig.UserName" class="form-control" placeholder="manager" required />
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label fw-bold">SAP Password *</label>
+                                    <input type="password" asp-for="SapConfig.Password" class="form-control" placeholder="••••••••" required />
+                                </div>
+                                <div class="col-12">
+                                    <label class="form-label fw-bold">Custom UDO Name (if Custom UDO selected)</label>
+                                    <input type="text" asp-for="SapConfig.UdoName" class="form-control" placeholder="JSW_CUTPLAN" />
+                                </div>
+                            </div>
+
+                            <div class="form-check form-switch mb-3 p-2 bg-light rounded d-flex align-items-center gap-3">
+                                <input class="form-check-input ms-0" type="checkbox" role="switch" asp-for="SapConfig.SimulationMode" id="simModeSwitch">
+                                <label class="form-check-label fw-bold text-dark" for="simModeSwitch">
+                                    Enable Sandbox / Simulation Mode (Simulates SAP responses without live server)
+                                </label>
+                            </div>
+
+                            <div class="form-check form-switch mb-4 p-2 bg-light rounded d-flex align-items-center gap-3">
+                                <input class="form-check-input ms-0" type="checkbox" role="switch" asp-for="SapConfig.BypassSslCertificate" id="sslBypassSwitch">
+                                <label class="form-check-label fw-bold text-dark" for="sslBypassSwitch">
+                                    Bypass Self-Signed SSL Certificate Verification (Recommended for internal dev networks)
+                                </label>
+                            </div>
+
+                            <div class="d-flex gap-2">
+                                <button type="submit" class="btn btn-primary">Save SAP B1 Configuration</button>
+                                <button type="submit" asp-page-handler="TestSap" class="btn btn-outline-primary">
+                                    <i class="bi bi-broadcast me-1"></i> Test SAP B1 Connection
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-12 col-lg-4">
+                <div class="jsw-card">
+                    <div class="jsw-card-header">
+                        <h5 class="jsw-card-title"><i class="bi bi-shield-lock text-primary"></i> Service Layer Security</h5>
+                    </div>
+                    <div class="p-3 small text-muted">
+                        <p>SAP B1 Service Layer connects directly to SAP HANA or MS SQL backends through high-throughput OData v4 REST endpoints.</p>
+                        <p><strong>Supported Operations:</strong></p>
+                        <ul class="ps-3 mb-0">
+                            <li>Creating Disassembly Production Orders</li>
+                            <li>Issuing Mother Coils as raw components</li>
+                            <li>Receiving Slit Coils and Blanks as finished goods</li>
+                            <li>Tracking Yield % and Scrap allowance</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tab 3: Supabase SQL Schema Script -->
+    <div class="tab-pane fade" id="tab-schema" role="tabpanel">
+        <div class="jsw-card">
+            <div class="jsw-card-header">
+                <h5 class="jsw-card-title"><i class="bi bi-terminal text-primary"></i> PostgreSQL Schema Script (Database/supabase_schema.sql)</h5>
+                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="copySchemaToClipboard()">
+                    <i class="bi bi-clipboard me-1"></i> Copy SQL
+                </button>
+            </div>
+            <div class="p-3">
+                <p class="text-muted small">
+                    Execute this script in your Supabase project's <strong>SQL Editor</strong> to create the <code>sales_orders</code>, <code>sales_order_items</code>, <code>cutting_plans</code>, <code>cutting_plan_lines</code>, and <code>sap_sync_logs</code> tables with indexes.
+                </p>
+                <textarea id="schemaTextArea" class="form-control font-monospace small bg-light" rows="18" readonly>@Model.SupabaseSqlSchema</textarea>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+<script>
+    function copySchemaToClipboard() {
+        const text = document.getElementById('schemaTextArea').value;
+        navigator.clipboard.writeText(text).then(() => {
+            alert('Supabase SQL Schema script copied to clipboard!');
+        }).catch(err => {
+            console.error('Failed to copy: ', err);
+        });
+    }
+</script>
+}

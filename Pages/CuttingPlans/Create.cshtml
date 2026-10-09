@@ -1,0 +1,414 @@
+@page
+@using System.Text.Json
+@model JSWMI_CRM.Pages.CuttingPlans.CreateModel
+@{
+    ViewData["Title"] = "Create Cutting Plan";
+}
+
+@if (!string.IsNullOrEmpty(Model.SuccessMessage))
+{
+    <div class="alert alert-success alert-dismissible fade show d-flex align-items-center" role="alert">
+        <i class="bi bi-check-circle-fill me-2 fs-5"></i>
+        <div>@Model.SuccessMessage</div>
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+}
+
+@if (!string.IsNullOrEmpty(Model.ErrorMessage))
+{
+    <div class="alert alert-danger alert-dismissible fade show d-flex align-items-center" role="alert">
+        <i class="bi bi-exclamation-triangle-fill me-2 fs-5"></i>
+        <div>@Model.ErrorMessage</div>
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb mb-1">
+                <li class="breadcrumb-item"><a asp-page="/CuttingPlans/Index">Cutting Plans</a></li>
+                <li class="breadcrumb-item active" aria-current="page">New Cutting Plan</li>
+            </ol>
+        </nav>
+        <h2 class="fw-bold mb-0 text-primary"><i class="bi bi-scissors"></i> Configure Cutting Plan</h2>
+    </div>
+    <div class="d-flex gap-2">
+        <a asp-page="/CuttingPlans/DownloadTemplate" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-download me-1"></i> Download Template
+        </a>
+        <a asp-page="/CuttingPlans/Index" class="btn btn-outline-secondary btn-sm">Cancel</a>
+    </div>
+</div>
+
+<!-- Upload Excel/CSV Option Card -->
+<div class="jsw-card mb-4 bg-light border-primary-subtle">
+    <div class="p-3">
+        <div class="d-flex flex-wrap align-items-center justify-content-between">
+            <div class="mb-2 mb-md-0">
+                <h6 class="fw-bold text-primary mb-1"><i class="bi bi-file-earmark-excel text-success me-1"></i> Fast Import: Upload Cutting Plan Excel / CSV</h6>
+                <div class="small text-muted">Upload an existing mill cutting schedule spreadsheet to populate the slitting grid below automatically.</div>
+            </div>
+            <form method="post" enctype="multipart/form-data" asp-page-handler="UploadFile" class="d-flex align-items-center gap-2">
+                <input type="file" name="UploadFile" class="form-control form-control-sm" accept=".xlsx,.xls,.csv" required />
+                <button type="submit" class="btn btn-outline-success btn-sm text-nowrap">
+                    <i class="bi bi-cloud-arrow-up me-1"></i> Parse & Load
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
+
+<form method="post" asp-page-handler="Save" id="cuttingPlanForm">
+    <div asp-validation-summary="All" class="text-danger mb-3"></div>
+
+    <input type="hidden" asp-for="LinesJson" id="hiddenLinesJson" />
+
+    <div class="row g-4">
+        <!-- 1. Sales Order & Customer Linking -->
+        <div class="col-12 col-lg-6">
+            <div class="jsw-card h-100">
+                <div class="jsw-card-header">
+                    <h5 class="jsw-card-title"><i class="bi bi-receipt text-primary"></i> 1. Link Customer Sales Order</h5>
+                </div>
+                <div class="p-3">
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Select Sales Order *</label>
+                        <select asp-for="Plan.SalesOrderId" asp-items="Model.SalesOrderOptions" class="form-select" id="salesOrderSelect" onchange="onSalesOrderChanged(this)">
+                            <option value="">-- Choose Sales Order --</option>
+                        </select>
+                        <input type="hidden" asp-for="Plan.SalesOrderDocNum" id="planSalesOrderDocNum" />
+                        <input type="hidden" asp-for="Plan.CustomerName" id="planCustomerName" />
+                    </div>
+
+                    <div id="soMetadataCard" class="card p-2 bg-light border-0">
+                        <div class="small text-muted">Customer Business Partner:</div>
+                        <div class="fw-bold fs-6 text-dark" id="displayCustomerName">@(string.IsNullOrEmpty(Model.Plan.CustomerName) ? "None Selected" : Model.Plan.CustomerName)</div>
+                        <div class="small text-muted mt-1" id="displayOrderNum">Order: @Model.Plan.SalesOrderDocNum</div>
+                    </div>
+
+                    <div class="mt-3">
+                        <label class="form-label fw-bold">Cutting Plan Code *</label>
+                        <input type="text" asp-for="Plan.PlanCode" class="form-control" required />
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 2. Mother Coil Specifications -->
+        <div class="col-12 col-lg-6">
+            <div class="jsw-card h-100">
+                <div class="jsw-card-header">
+                    <h5 class="jsw-card-title"><i class="bi bi-disc text-primary"></i> 2. Mother Coil Specifications</h5>
+                </div>
+                <div class="p-3">
+                    <div class="row g-2">
+                        <div class="col-sm-6">
+                            <label class="form-label fw-bold">Mother Coil Number *</label>
+                            <input type="text" asp-for="Plan.MotherCoilNo" class="form-control" required />
+                        </div>
+                        <div class="col-sm-6">
+                            <label class="form-label fw-bold">Heat / Cast No *</label>
+                            <input type="text" asp-for="Plan.HeatNo" class="form-control" required />
+                        </div>
+                        <div class="col-sm-6">
+                            <label class="form-label fw-bold">Steel Grade *</label>
+                            <input type="text" asp-for="Plan.Grade" class="form-control" placeholder="e.g. CR EDD Grade D, SAPH440" required />
+                        </div>
+                        <div class="col-sm-6">
+                            <label class="form-label fw-bold">Mother Width (mm) *</label>
+                            <input type="number" step="0.1" asp-for="Plan.MotherWidth" id="motherWidthInput" class="form-control" oninput="recalculateSummary()" required />
+                        </div>
+                        <div class="col-sm-6">
+                            <label class="form-label fw-bold">Thickness (mm) *</label>
+                            <input type="number" step="0.01" asp-for="Plan.MotherThickness" id="motherThicknessInput" class="form-control" required />
+                        </div>
+                        <div class="col-sm-6">
+                            <label class="form-label fw-bold">Mother Coil Weight (MT) *</label>
+                            <input type="number" step="0.001" asp-for="Plan.MotherWeight" id="motherWeightInput" class="form-control" oninput="recalculateSummary()" required />
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 3. Real-time Yield & Visual Gauge -->
+        <div class="col-12">
+            <div class="jsw-card">
+                <div class="p-3 bg-light rounded-top">
+                    <div class="row g-3 align-items-center">
+                        <div class="col-sm-3">
+                            <span class="text-muted small text-uppercase fw-bold">Mother Coil Width</span>
+                            <div class="fs-5 fw-bold text-dark"><span id="lblMotherWidth">0</span> mm</div>
+                        </div>
+                        <div class="col-sm-3">
+                            <span class="text-muted small text-uppercase fw-bold">Planned Output Width</span>
+                            <div class="fs-5 fw-bold text-primary"><span id="lblOutputWidth">0</span> mm</div>
+                        </div>
+                        <div class="col-sm-3">
+                            <span class="text-muted small text-uppercase fw-bold">Side Trim / Scrap</span>
+                            <div class="fs-5 fw-bold text-danger"><span id="lblScrapWidth">0</span> mm</div>
+                        </div>
+                        <div class="col-sm-3">
+                            <span class="text-muted small text-uppercase fw-bold">Yield Recovery</span>
+                            <div class="fs-5 fw-bold text-success"><span id="lblYield">0</span>%</div>
+                        </div>
+                    </div>
+
+                    <!-- Visual Slit Bar -->
+                    <div class="mt-3">
+                        <div class="d-flex justify-content-between small text-muted mb-1">
+                            <span>0 mm (Edge A)</span>
+                            <span>Mother Coil Width Cross-Section Diagram</span>
+                            <span id="lblDiagramMax">1250 mm (Edge B)</span>
+                        </div>
+                        <div class="slit-bar" id="visualSlitBar">
+                            <!-- Populated dynamically via JS -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 4. Interactive Slitting Lines Grid -->
+        <div class="col-12">
+            <div class="jsw-card">
+                <div class="jsw-card-header">
+                    <h5 class="jsw-card-title"><i class="bi bi-table text-primary"></i> 3. Slitting / Shearing Output Cuts</h5>
+                    <button type="button" class="btn btn-sm btn-outline-primary" onclick="addNewRow()">
+                        <i class="bi bi-plus-circle me-1"></i> Add Slit Row
+                    </button>
+                </div>
+
+                <div class="table-responsive">
+                    <table class="table table-bordered table-sm align-middle mb-0" id="linesTable">
+                        <thead class="table-light">
+                            <tr>
+                                <th style="width: 50px;">#</th>
+                                <th style="width: 160px;">Output Item Code *</th>
+                                <th>Description / Spec</th>
+                                <th style="width: 120px;">Cut Width (mm) *</th>
+                                <th style="width: 100px;">Cut Length (mm)</th>
+                                <th style="width: 80px;">Qty *</th>
+                                <th style="width: 120px;">Weight (MT) *</th>
+                                <th style="width: 120px;">Tolerance</th>
+                                <th style="width: 110px;">Edge</th>
+                                <th>Remarks</th>
+                                <th style="width: 50px;" class="text-center">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="linesTableBody">
+                            <!-- Populated via JavaScript -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Remarks & Submission -->
+        <div class="col-12">
+            <div class="jsw-card">
+                <div class="p-3">
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Cutting Plan Instructions / Remarks</label>
+                        <textarea asp-for="Plan.Remarks" class="form-control" rows="2" placeholder="Operator notes, packaging instructions, oiling requirements..."></textarea>
+                    </div>
+
+                    <div class="form-check form-switch mb-3 p-2 bg-light rounded d-flex align-items-center gap-3">
+                        <input class="form-check-input ms-0" type="checkbox" role="switch" asp-for="PushToSapImmediately" id="pushToSapCheck" checked>
+                        <label class="form-check-label fw-bold text-dark mb-0" for="pushToSapCheck">
+                            <i class="bi bi-cloud-arrow-up text-primary me-1"></i> Push Cutting Plan to SAP Business One API immediately after saving
+                        </label>
+                    </div>
+
+                    <div class="d-flex justify-content-end gap-2">
+                        <a asp-page="/CuttingPlans/Index" class="btn btn-outline-secondary">Cancel</a>
+                        <button type="button" class="btn btn-secondary" onclick="submitForm(false)">Save as Draft</button>
+                        <button type="button" class="btn btn-jsw" onclick="submitForm(true)">
+                            <i class="bi bi-check-circle me-1"></i> Save & Import into SAP B1
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</form>
+
+@section Scripts {
+<script>
+    let lines = [];
+    const salesOrders = @Html.Raw(JsonSerializer.Serialize(Model.AvailableSalesOrders));
+
+    try {
+        lines = JSON.parse('@Html.Raw(Model.LinesJson)');
+    } catch(e) {
+        lines = [];
+    }
+
+    if (!lines || lines.length === 0) {
+        addNewRow();
+    } else {
+        renderTable();
+    }
+
+    function onSalesOrderChanged(selectElem) {
+        const selectedId = selectElem.value;
+        const so = salesOrders.find(x => x.Id === selectedId);
+        if (so) {
+            document.getElementById('displayCustomerName').innerText = so.CardName;
+            document.getElementById('displayOrderNum').innerText = 'Order: ' + so.DocNum;
+            document.getElementById('planSalesOrderDocNum').value = so.DocNum;
+            document.getElementById('planCustomerName').value = so.CardName;
+        } else {
+            document.getElementById('displayCustomerName').innerText = 'None Selected';
+            document.getElementById('displayOrderNum').innerText = '';
+            document.getElementById('planSalesOrderDocNum').value = '';
+            document.getElementById('planCustomerName').value = '';
+        }
+    }
+
+    function renderTable() {
+        const tbody = document.getElementById('linesTableBody');
+        tbody.innerHTML = '';
+
+        lines.forEach((line, idx) => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td class="text-center fw-bold">${idx + 1}</td>
+                <td><input type="text" class="form-control form-control-sm" value="${escapeHtml(line.OutputItemCode || '')}" onchange="updateLine(${idx}, 'OutputItemCode', this.value)" required /></td>
+                <td><input type="text" class="form-control form-control-sm" value="${escapeHtml(line.OutputDescription || '')}" onchange="updateLine(${idx}, 'OutputDescription', this.value)" /></td>
+                <td><input type="number" step="0.1" class="form-control form-control-sm" value="${line.CutWidth || 0}" oninput="updateLine(${idx}, 'CutWidth', parseFloat(this.value) || 0)" required /></td>
+                <td><input type="number" step="0.1" class="form-control form-control-sm" value="${line.CutLength || 0}" oninput="updateLine(${idx}, 'CutLength', parseFloat(this.value) || 0)" /></td>
+                <td><input type="number" min="1" class="form-control form-control-sm" value="${line.Quantity || 1}" oninput="updateLine(${idx}, 'Quantity', parseInt(this.value) || 1)" required /></td>
+                <td><input type="number" step="0.001" class="form-control form-control-sm" value="${line.TargetWeight || 0}" oninput="updateLine(${idx}, 'TargetWeight', parseFloat(this.value) || 0)" required /></td>
+                <td><input type="text" class="form-control form-control-sm" value="${escapeHtml(line.Tolerance || '+/- 0.5 mm')}" onchange="updateLine(${idx}, 'Tolerance', this.value)" /></td>
+                <td>
+                    <select class="form-select form-select-sm" onchange="updateLine(${idx}, 'EdgeCondition', this.value)">
+                        <option value="Slit Edge" ${line.EdgeCondition === 'Slit Edge' ? 'selected' : ''}>Slit Edge</option>
+                        <option value="Mill Edge" ${line.EdgeCondition === 'Mill Edge' ? 'selected' : ''}>Mill Edge</option>
+                    </select>
+                </td>
+                <td><input type="text" class="form-control form-control-sm" value="${escapeHtml(line.Remarks || '')}" onchange="updateLine(${idx}, 'Remarks', this.value)" /></td>
+                <td class="text-center">
+                    <button type="button" class="btn btn-outline-danger btn-sm p-1" onclick="deleteRow(${idx})" title="Delete row">
+                        <i class="bi bi-trash"></i>
+                    </button>
+                </td>
+            `;
+            tbody.appendChild(tr);
+        });
+
+        recalculateSummary();
+    }
+
+    function addNewRow() {
+        lines.push({
+            LineNum: lines.length + 1,
+            OutputItemCode: `JSW-SLT-${Math.floor(Math.random() * 500 + 100)}`,
+            OutputDescription: 'Custom Slit Strip',
+            CutWidth: 300,
+            CutLength: 0,
+            Quantity: 1,
+            TargetWeight: 6.000,
+            Tolerance: '+/- 0.5 mm',
+            EdgeCondition: 'Slit Edge',
+            Remarks: ''
+        });
+        renderTable();
+    }
+
+    function deleteRow(idx) {
+        if (lines.length > 1) {
+            lines.splice(idx, 1);
+            lines.forEach((l, i) => l.LineNum = i + 1);
+            renderTable();
+        } else {
+            alert('At least one cut row is required.');
+        }
+    }
+
+    function updateLine(idx, field, value) {
+        lines[idx][field] = value;
+        if (field === 'CutWidth' || field === 'Quantity' || field === 'TargetWeight') {
+            recalculateSummary();
+        }
+    }
+
+    function recalculateSummary() {
+        const motherWidth = parseFloat(document.getElementById('motherWidthInput').value) || 0;
+        const motherWeight = parseFloat(document.getElementById('motherWeightInput').value) || 0;
+
+        let totalWidth = 0;
+        let totalWeight = 0;
+
+        lines.forEach(l => {
+            const w = parseFloat(l.CutWidth) || 0;
+            const q = parseInt(l.Quantity) || 1;
+            const wt = parseFloat(l.TargetWeight) || 0;
+
+            totalWidth += (w * q);
+            totalWeight += wt;
+        });
+
+        const scrapWidth = Math.max(0, motherWidth - totalWidth);
+        let yieldPct = 0;
+
+        if (motherWeight > 0) {
+            yieldPct = Math.min(100, Math.round((totalWeight / motherWeight) * 1000) / 10);
+        } else if (motherWidth > 0) {
+            yieldPct = Math.min(100, Math.round((totalWidth / motherWidth) * 1000) / 10);
+        }
+
+        document.getElementById('lblMotherWidth').innerText = motherWidth.toFixed(1);
+        document.getElementById('lblOutputWidth').innerText = totalWidth.toFixed(1);
+        document.getElementById('lblScrapWidth').innerText = scrapWidth.toFixed(1);
+        document.getElementById('lblYield').innerText = yieldPct.toFixed(1);
+        document.getElementById('lblDiagramMax').innerText = motherWidth.toFixed(0) + ' mm (Edge B)';
+
+        // Visual Slit Bar
+        const bar = document.getElementById('visualSlitBar');
+        bar.innerHTML = '';
+
+        if (motherWidth > 0) {
+            const colors = ['#0284c7', '#0d9488', '#2563eb', '#7c3aed', '#059669', '#d97706'];
+
+            lines.forEach((l, idx) => {
+                const w = (parseFloat(l.CutWidth) || 0) * (parseInt(l.Quantity) || 1);
+                if (w > 0) {
+                    const pct = Math.min(100, (w / motherWidth) * 100);
+                    const seg = document.createElement('div');
+                    seg.className = 'slit-segment';
+                    seg.style.width = pct + '%';
+                    seg.style.backgroundColor = colors[idx % colors.length];
+                    seg.title = `Line ${idx + 1}: ${l.OutputItemCode} (${w}mm)`;
+                    seg.innerText = `${l.CutWidth}mm`;
+                    bar.appendChild(seg);
+                }
+            });
+
+            if (scrapWidth > 0) {
+                const scrapPct = (scrapWidth / motherWidth) * 100;
+                const scrapSeg = document.createElement('div');
+                scrapSeg.className = 'slit-segment slit-scrap';
+                scrapSeg.style.width = scrapPct + '%';
+                scrapSeg.title = `Scrap/Trim: ${scrapWidth}mm`;
+                scrapSeg.innerText = scrapWidth >= 20 ? `Scrap ${scrapWidth.toFixed(0)}mm` : '';
+                bar.appendChild(scrapSeg);
+            }
+        }
+    }
+
+    function submitForm(pushToSap) {
+        document.getElementById('pushToSapCheck').checked = pushToSap;
+        document.getElementById('hiddenLinesJson').value = JSON.stringify(lines);
+
+        const form = document.getElementById('cuttingPlanForm');
+        form.submit();
+    }
+
+    function escapeHtml(str) {
+        if (!str) return '';
+        return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+</script>
+}
