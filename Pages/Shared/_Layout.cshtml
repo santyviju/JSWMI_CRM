@@ -45,6 +45,11 @@
                             </a>
                         </li>
                         <li class="nav-item">
+                            <a class="nav-link jsw-nav-link" asp-page="/Locations/Index">
+                                <i class="bi bi-geo-alt"></i> Branches
+                            </a>
+                        </li>
+                        <li class="nav-item">
                             <a class="nav-link jsw-nav-link" asp-page="/SapIntegration/Index">
                                 <i class="bi bi-cpu"></i> SAP B1 API Sync
                             </a>
@@ -57,14 +62,34 @@
                     </ul>
 
                     <div class="d-flex align-items-center gap-2">
+                        @if (User.Identity?.IsAuthenticated == true)
+                        {
+                            var locName = User.FindFirst("LocationName")?.Value;
+                            var roleName = User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value ?? "Planner";
+
+                            @if (!string.IsNullOrEmpty(locName) && locName != "All Locations")
+                            {
+                                <span class="badge rounded-pill bg-primary bg-opacity-50 border border-primary text-light px-2 py-1 d-none d-xl-inline-flex align-items-center gap-1" title="@locName">
+                                    <i class="bi bi-geo-alt-fill text-warning"></i>
+                                    <span>@(locName.Length > 16 ? locName.Substring(0, 14) + "…" : locName)</span>
+                                </span>
+                            }
+                            else if (roleName == "Admin")
+                            {
+                                <span class="badge rounded-pill bg-warning text-dark px-2 py-1 d-none d-xl-inline-flex align-items-center gap-1">
+                                    <i class="bi bi-shield-check"></i> Admin (All Branches)
+                                </span>
+                            }
+                        }
+
                         <!-- Supabase Cloud pill -->
-                        <span class="badge rounded-pill bg-dark border border-secondary text-light px-3 py-2 d-flex align-items-center gap-2">
+                        <span class="badge rounded-pill bg-dark border border-secondary text-light px-3 py-2 d-none d-md-flex align-items-center gap-2">
                             <i class="bi bi-database-fill text-success"></i>
                             <span>Supabase: @(supaConfig.UseCloudStorage ? "Cloud Connected" : "Local / Cloud Sync")</span>
                         </span>
 
                         <!-- SAP B1 pill -->
-                        <span class="badge rounded-pill bg-dark border border-secondary text-light px-3 py-2 d-flex align-items-center gap-2">
+                        <span class="badge rounded-pill bg-dark border border-secondary text-light px-3 py-2 d-none d-md-flex align-items-center gap-2">
                             <i class="bi bi-plug-fill @(sapConfig.SimulationMode ? "text-warning" : "text-info")"></i>
                             <span>SAP B1: @(sapConfig.SimulationMode ? "Sandbox Simulator" : sapConfig.CompanyDB)</span>
                         </span>
@@ -75,14 +100,32 @@
 
                         @if (User.Identity?.IsAuthenticated == true)
                         {
+                            var roleName = User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value ?? "Planner";
+                            var locName = User.FindFirst("LocationName")?.Value ?? "All Locations";
+
                             <div class="dropdown ms-1">
                                 <button class="btn btn-dark btn-sm dropdown-toggle d-flex align-items-center gap-2 border-secondary text-light px-2" type="button" data-bs-toggle="dropdown" aria-expanded="false">
                                     <i class="bi bi-person-circle text-warning fs-6"></i>
-                                    <span>@(User.Identity.Name ?? "Planner")</span>
+                                    <span>@(User.Identity.Name ?? "User")</span>
                                 </button>
                                 <ul class="dropdown-menu dropdown-menu-end shadow-sm">
-                                    <li class="dropdown-header small text-muted">
-                                        <i class="bi bi-shield-check text-success me-1"></i> Supabase Authenticated
+                                    <li class="dropdown-header small">
+                                        <div class="fw-bold text-dark">@(User.Identity.Name)</div>
+                                        <div class="d-flex align-items-center gap-1 mt-1">
+                                            <span class="badge bg-@(roleName == "Admin" ? "warning text-dark" : "secondary")">@roleName</span>
+                                            <span class="badge bg-light text-dark border">@locName</span>
+                                        </div>
+                                    </li>
+                                    <li><hr class="dropdown-divider"></li>
+                                    <li>
+                                        <a asp-page="/Locations/Index" class="dropdown-item d-flex align-items-center gap-2">
+                                            <i class="bi bi-geo-alt text-primary"></i> Plant Locations
+                                        </a>
+                                    </li>
+                                    <li>
+                                        <a asp-page="/Settings/Index" class="dropdown-item d-flex align-items-center gap-2">
+                                            <i class="bi bi-gear text-secondary"></i> System Settings
+                                        </a>
                                     </li>
                                     <li><hr class="dropdown-divider"></li>
                                     <li>

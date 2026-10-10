@@ -58,7 +58,25 @@
             }
         </div>
     </div>
-    <div class="d-flex gap-2 mt-2 mt-md-0">
+    <div class="d-flex flex-wrap gap-2 mt-2 mt-md-0">
+        @{
+            var waMessage = Uri.EscapeDataString(
+                $"*JSW MI Steel Cutting Plan Update*\n" +
+                $"Plan Code: {Model.Plan.PlanCode}\n" +
+                $"Customer: {Model.Plan.CustomerName}\n" +
+                $"Branch / Location: {(string.IsNullOrEmpty(Model.Plan.LocationName) ? "JSW Processing Center" : Model.Plan.LocationName)}\n" +
+                $"Prepared By: {(string.IsNullOrEmpty(Model.Plan.PreparedByName) ? "Planner" : Model.Plan.PreparedByName)}\n" +
+                $"Mother Coil: {Model.Plan.MotherCoilNo} (Grade: {Model.Plan.Grade})\n" +
+                $"Width/Thk/Weight: {Model.Plan.MotherWidth}mm / {Model.Plan.MotherThickness}mm / {Model.Plan.MotherWeight} MT\n" +
+                $"Total Output Slits: {Model.Plan.Lines.Count} ({Model.Plan.TotalOutputWidth} mm)\n" +
+                $"Status: {Model.Plan.Status} | SAP Sync: {Model.Plan.SapSyncStatus}\n" +
+                $"Link: https://jswmi-crm.onrender.com/CuttingPlans/Details/{Model.Plan.Id}"
+            );
+        }
+        <a href="https://wa.me/?text=@waMessage" target="_blank" rel="noopener noreferrer" class="btn text-white shadow-sm d-flex align-items-center gap-1" style="background-color: #25D366; border-color: #25D366;">
+            <i class="bi bi-whatsapp"></i> Share on WhatsApp
+        </a>
+
         @if (Model.Plan.SapSyncStatus != "Synced")
         {
             <form method="post" asp-page-handler="SyncToSap" asp-route-id="@Model.Plan.Id">
@@ -178,12 +196,26 @@
                         </div>
                     </div>
                     <div class="col-sm-6">
-                        <span class="text-muted small">Created By:</span>
-                        <div>@Model.Plan.CreatedBy</div>
+                        <span class="text-muted small">Processing Branch:</span>
+                        <div>
+                            <span class="badge bg-primary fs-6">
+                                <i class="bi bi-geo-alt-fill me-1"></i>@(string.IsNullOrEmpty(Model.Plan.LocationName) ? "JSW Processing Center" : Model.Plan.LocationName)
+                            </span>
+                        </div>
+                    </div>
+                    <div class="col-sm-6">
+                        <span class="text-muted small">Prepared By (Planner):</span>
+                        <div class="fw-bold text-dark">
+                            <i class="bi bi-person-fill text-primary me-1"></i>@(string.IsNullOrEmpty(Model.Plan.PreparedByName) ? Model.Plan.CreatedBy : Model.Plan.PreparedByName)
+                        </div>
                     </div>
                     <div class="col-sm-6">
                         <span class="text-muted small">Created Date:</span>
                         <div>@Model.Plan.CreatedAt.ToString("dd-MMM-yyyy HH:mm")</div>
+                    </div>
+                    <div class="col-sm-6">
+                        <span class="text-muted small">Quality Approval:</span>
+                        <div>@(string.IsNullOrEmpty(Model.Plan.ApprovedBy) ? "Pending Review" : Model.Plan.ApprovedBy)</div>
                     </div>
                 </div>
             </div>

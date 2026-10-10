@@ -87,6 +87,29 @@
                         <div class="small text-muted mt-1" id="displayOrderNum">Order: @Model.Plan.SalesOrderDocNum</div>
                     </div>
 
+                    <div class="row g-2 mt-2">
+                        <div class="col-sm-6">
+                            <label class="form-label fw-bold"><i class="bi bi-geo-alt-fill text-danger me-1"></i>Processing Branch *</label>
+                            @if (Model.IsAdmin)
+                            {
+                                <select asp-for="Plan.LocationId" asp-items="Model.LocationOptions" class="form-select">
+                                    <option value="">-- Choose Branch --</option>
+                                </select>
+                            }
+                            else
+                            {
+                                <input type="text" class="form-control bg-light" value="@(string.IsNullOrEmpty(Model.Plan.LocationName) ? "Assigned Plant" : Model.Plan.LocationName)" readonly />
+                                <input type="hidden" asp-for="Plan.LocationId" />
+                                <input type="hidden" asp-for="Plan.LocationName" />
+                            }
+                        </div>
+                        <div class="col-sm-6">
+                            <label class="form-label fw-bold"><i class="bi bi-person-badge-fill text-primary me-1"></i>Prepared By</label>
+                            <input type="text" asp-for="Plan.PreparedByName" class="form-control bg-light" readonly />
+                            <input type="hidden" asp-for="Plan.PreparedByUserId" />
+                        </div>
+                    </div>
+
                     <div class="mt-3">
                         <label class="form-label fw-bold">Cutting Plan Code *</label>
                         <input type="text" asp-for="Plan.PlanCode" class="form-control" required />

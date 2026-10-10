@@ -116,3 +116,48 @@ VALUES
 ('SOI-2', 'SO-1002', 1, 'JSW-HRPO-1500-25', 'HRPO Coils SAPH440 2.50mm x 1500mm', 55.000, 'MT', 55.000, 44000.00),
 ('SOI-3', 'SO-1003', 1, 'JSW-GI-1000-08', 'GI Coils Zero Spangle 0.80mm x 1000mm', 22.000, 'MT', 22.000, 44545.45)
 ON CONFLICT (id) DO NOTHING;
+
+-- 6. Dynamic Branches & Processing Locations
+CREATE TABLE IF NOT EXISTS locations (
+    id VARCHAR(64) PRIMARY KEY,
+    code VARCHAR(20) NOT NULL UNIQUE,
+    name VARCHAR(150) NOT NULL,
+    city VARCHAR(100),
+    state VARCHAR(100),
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 7. User Profiles with Role & Location Assignment
+CREATE TABLE IF NOT EXISTS user_profiles (
+    user_id VARCHAR(64) PRIMARY KEY,
+    email VARCHAR(200) NOT NULL,
+    full_name VARCHAR(150),
+    role VARCHAR(50) DEFAULT 'Planner',      -- Admin, Planner, Supervisor
+    location_id VARCHAR(64) REFERENCES locations(id) ON DELETE SET NULL,
+    location_name VARCHAR(150),
+    phone_number VARCHAR(50),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Alter existing tables to associate Location and Auditor
+ALTER TABLE sales_orders ADD COLUMN IF NOT EXISTS location_id VARCHAR(64) REFERENCES locations(id) ON DELETE SET NULL;
+ALTER TABLE sales_orders ADD COLUMN IF NOT EXISTS location_name VARCHAR(150);
+ALTER TABLE sales_orders ADD COLUMN IF NOT EXISTS created_by_user_id VARCHAR(64);
+ALTER TABLE sales_orders ADD COLUMN IF NOT EXISTS created_by_name VARCHAR(150);
+
+ALTER TABLE cutting_plans ADD COLUMN IF NOT EXISTS location_id VARCHAR(64) REFERENCES locations(id) ON DELETE SET NULL;
+ALTER TABLE cutting_plans ADD COLUMN IF NOT EXISTS location_name VARCHAR(150);
+ALTER TABLE cutting_plans ADD COLUMN IF NOT EXISTS prepared_by_user_id VARCHAR(64);
+ALTER TABLE cutting_plans ADD COLUMN IF NOT EXISTS prepared_by_name VARCHAR(150);
+
+-- Initial 4 JSW Steel Service Center Locations
+INSERT INTO locations (id, code, name, city, state, is_active)
+VALUES
+('LOC-VIJ', 'VIJ', 'JSW Vijayanagar Processing Center', 'Toranagallu', 'Karnataka', TRUE),
+('LOC-BLR', 'BLR', 'JSW Bellary Service Center', 'Bellary', 'Karnataka', TRUE),
+('LOC-MUM', 'MUM', 'JSW Kalamboli Coil Service Center', 'Navi Mumbai', 'Maharashtra', TRUE),
+('LOC-PUN', 'PUN', 'JSW Chakan Automotive Service Center', 'Pune', 'Maharashtra', TRUE)
+ON CONFLICT (code) DO NOTHING;
+

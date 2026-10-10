@@ -20,12 +20,19 @@ namespace JSWMI_CRM.Pages.CuttingPlans
         }
 
         public List<CuttingPlan> CuttingPlans { get; set; } = new();
+        public List<Location> Locations { get; set; } = new();
 
         [BindProperty(SupportsGet = true)]
         public string? StatusFilter { get; set; }
 
         [BindProperty(SupportsGet = true)]
+        public string? LocationFilter { get; set; }
+
+        [BindProperty(SupportsGet = true)]
         public string? SearchTerm { get; set; }
+
+        public bool IsAdmin => User.IsInRole("Admin");
+        public string? UserLocationName => User.FindFirst("LocationName")?.Value;
 
         [TempData]
         public string? SuccessMessage { get; set; }
@@ -35,7 +42,12 @@ namespace JSWMI_CRM.Pages.CuttingPlans
 
         public async Task OnGetAsync()
         {
-            var plans = await _supabaseService.GetCuttingPlansAsync();
+            Locations = await _supabaseService.GetLocationsAsync();
+
+            var userLocationId = User.FindFirst("LocationId")?.Value;
+            var effectiveLocationId = IsAdmin ? LocationFilter : userLocationId;
+
+            var plans = await _supabaseService.GetCuttingPlansAsync(effectiveLocationId, IsAdmin);
 
             if (!string.IsNullOrEmpty(StatusFilter))
             {
@@ -51,7 +63,9 @@ namespace JSWMI_CRM.Pages.CuttingPlans
                     x.SalesOrderDocNum.ToLowerInvariant().Contains(term) ||
                     x.CustomerName.ToLowerInvariant().Contains(term) ||
                     x.MotherCoilNo.ToLowerInvariant().Contains(term) ||
-                    x.HeatNo.ToLowerInvariant().Contains(term)
+                    x.HeatNo.ToLowerInvariant().Contains(term) ||
+                    (x.PreparedByName != null && x.PreparedByName.ToLowerInvariant().Contains(term)) ||
+                    (x.LocationName != null && x.LocationName.ToLowerInvariant().Contains(term))
                 ).ToList();
             }
 

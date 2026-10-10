@@ -22,6 +22,13 @@ namespace JSWMI_CRM.Pages
 
         public List<SalesOrder> RecentSalesOrders { get; set; } = new();
         public List<CuttingPlan> RecentCuttingPlans { get; set; } = new();
+        public List<Location> Locations { get; set; } = new();
+
+        [BindProperty(SupportsGet = true)]
+        public string? LocationFilter { get; set; }
+
+        public bool IsAdmin => User.IsInRole("Admin");
+        public string? UserLocationName => User.FindFirst("LocationName")?.Value;
 
         public int TotalSalesOrders { get; set; }
         public int TotalCuttingPlans { get; set; }
@@ -38,8 +45,13 @@ namespace JSWMI_CRM.Pages
 
         public async Task OnGetAsync()
         {
-            var salesOrders = await _supabaseService.GetSalesOrdersAsync();
-            var cuttingPlans = await _supabaseService.GetCuttingPlansAsync();
+            Locations = await _supabaseService.GetLocationsAsync();
+
+            var userLocationId = User.FindFirst("LocationId")?.Value;
+            var effectiveLocationId = IsAdmin ? LocationFilter : userLocationId;
+
+            var salesOrders = await _supabaseService.GetSalesOrdersAsync(effectiveLocationId, IsAdmin);
+            var cuttingPlans = await _supabaseService.GetCuttingPlansAsync(effectiveLocationId, IsAdmin);
 
             RecentSalesOrders = salesOrders.Take(5).ToList();
             RecentCuttingPlans = cuttingPlans.Take(6).ToList();

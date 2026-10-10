@@ -1,0 +1,218 @@
+@page
+@model JSWMI_CRM.Pages.Locations.IndexModel
+@{
+    ViewData["Title"] = "Locations & Service Centers";
+}
+
+<div class="container-fluid py-2">
+    <!-- Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4 pb-2 border-bottom">
+        <div>
+            <h3 class="fw-bold mb-1 text-dark">
+                <i class="bi bi-geo-alt-fill text-danger me-2"></i>Multi-Location & Branch Management
+            </h3>
+            <p class="text-muted mb-0 small">
+                Manage dynamic steel processing locations across India and configure User Role & Branch Data Access.
+            </p>
+        </div>
+        @if (Model.IsAdmin)
+        {
+            <button type="button" class="btn btn-jsw btn-sm" data-bs-toggle="modal" data-bs-target="#newLocationModal">
+                <i class="bi bi-plus-circle me-1"></i> Add New Location
+            </button>
+        }
+    </div>
+
+    @if (!string.IsNullOrEmpty(Model.SuccessMessage))
+    {
+        <div class="alert alert-success alert-dismissible fade show shadow-sm" role="alert">
+            <i class="bi bi-check-circle-fill me-2"></i>@Model.SuccessMessage
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(Model.ErrorMessage))
+    {
+        <div class="alert alert-danger alert-dismissible fade show shadow-sm" role="alert">
+            <i class="bi bi-exclamation-triangle-fill me-2"></i>@Model.ErrorMessage
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+    }
+
+    <!-- Locations Cards & Table -->
+    <div class="row g-4 mb-4">
+        @foreach (var loc in Model.Locations)
+        {
+            <div class="col-md-6 col-xl-3">
+                <div class="card h-100 shadow-sm border-0 border-top border-4 @(loc.IsActive ? "border-primary" : "border-secondary")">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-start mb-2">
+                            <span class="badge bg-dark fs-6 px-2 py-1">@loc.Code</span>
+                            @if (loc.IsActive)
+                            {
+                                <span class="badge bg-success-subtle text-success border border-success px-2 py-1">
+                                    <i class="bi bi-check-circle-fill me-1"></i>Active
+                                </span>
+                            }
+                            else
+                            {
+                                <span class="badge bg-secondary-subtle text-secondary border border-secondary px-2 py-1">
+                                    <i class="bi bi-pause-circle-fill me-1"></i>Inactive
+                                </span>
+                            }
+                        </div>
+                        <h6 class="card-title fw-bold text-dark mb-1">@loc.Name</h6>
+                        <p class="text-muted small mb-3">
+                            <i class="bi bi-pin-map-fill text-danger me-1"></i>@(string.IsNullOrWhiteSpace(loc.City) ? "India" : $"{loc.City}, {loc.State}")
+                        </p>
+                        
+                        <div class="pt-2 border-top d-flex justify-content-between align-items-center">
+                            <small class="text-muted font-monospace">@loc.Id</small>
+                            @if (Model.IsAdmin)
+                            {
+                                <div class="btn-group btn-group-sm">
+                                    <form method="post" asp-page-handler="ToggleStatus" asp-route-id="@loc.Id" class="d-inline">
+                                        <button type="submit" class="btn btn-outline-secondary btn-sm" title="Toggle Active Status">
+                                            <i class="bi @(loc.IsActive ? "bi-eye-slash" : "bi-eye")"></i>
+                                        </button>
+                                    </form>
+                                    <form method="post" asp-page-handler="DeleteLocation" asp-route-id="@loc.Id" class="d-inline" onsubmit="return confirm('Are you sure you want to delete this branch?');">
+                                        <button type="submit" class="btn btn-outline-danger btn-sm" title="Delete Location">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </form>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+
+    @if (Model.IsAdmin && Model.UserProfiles.Any())
+    {
+        <!-- User Role & Branch Assignment Table -->
+        <div class="card shadow-sm border-0 mb-4">
+            <div class="card-header bg-white py-3 border-bottom d-flex justify-content-between align-items-center">
+                <div>
+                    <h5 class="fw-bold mb-0 text-dark">
+                        <i class="bi bi-people-fill text-primary me-2"></i>User Roles & Branch Permissions
+                    </h5>
+                    <small class="text-muted">
+                        Admins can view and edit orders from all locations. Planners and Supervisors access data restricted to their assigned branch.
+                    </small>
+                </div>
+                <span class="badge bg-primary">@Model.UserProfiles.Count Users Enrolled</span>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light text-uppercase small text-muted">
+                        <tr>
+                            <th>User</th>
+                            <th>Email</th>
+                            <th>Role</th>
+                            <th>Assigned Branch</th>
+                            <th class="text-end">Save Access</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var user in Model.UserProfiles)
+                        {
+                            <tr>
+                                <td>
+                                    <div class="d-flex align-items-center">
+                                        <div class="avatar-circle me-2 bg-primary text-white fw-bold d-flex align-items-center justify-content-center" style="width: 34px; height: 34px; border-radius: 50%;">
+                                            @(string.IsNullOrEmpty(user.FullName) ? "U" : user.FullName.Substring(0, 1).ToUpper())
+                                        </div>
+                                        <div>
+                                            <div class="fw-semibold">@user.FullName</div>
+                                            <small class="text-muted font-monospace">@user.UserId</small>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td>@user.Email</td>
+                                <form method="post" asp-page-handler="AssignUser">
+                                    <input type="hidden" name="userId" value="@user.UserId" />
+                                    <td>
+                                        <select name="role" class="form-select form-select-sm" style="width: 140px;">
+                                            <option value="Admin" selected="@(user.Role == "Admin")">Admin (All Branches)</option>
+                                            <option value="Planner" selected="@(user.Role == "Planner")">Planner (Branch Only)</option>
+                                            <option value="Supervisor" selected="@(user.Role == "Supervisor")">Supervisor (Branch Only)</option>
+                                        </select>
+                                    </td>
+                                    <td>
+                                        <select name="locationId" class="form-select form-select-sm" style="width: 220px;">
+                                            <option value="">-- All Locations (Global) --</option>
+                                            @foreach (var loc in Model.Locations)
+                                            {
+                                                <option value="@loc.Id" selected="@(user.LocationId == loc.Id)">
+                                                    @loc.Code - @loc.Name
+                                                </option>
+                                            }
+                                        </select>
+                                    </td>
+                                    <td class="text-end">
+                                        <button type="submit" class="btn btn-outline-primary btn-sm">
+                                            <i class="bi bi-save me-1"></i> Update
+                                        </button>
+                                    </td>
+                                </form>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+</div>
+
+@if (Model.IsAdmin)
+{
+    <!-- Add New Location Modal -->
+    <div class="modal fade" id="newLocationModal" tabindex="-1" aria-labelledby="newLocationModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <form method="post" asp-page-handler="SaveLocation">
+                    <div class="modal-header bg-dark text-white">
+                        <h5 class="modal-title" id="newLocationModalLabel">
+                            <i class="bi bi-plus-circle text-warning me-2"></i>Add Processing Location / Branch
+                        </h5>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Location Code <span class="text-danger">*</span></label>
+                            <input asp-for="NewLocation.Code" class="form-control" placeholder="e.g. DEL, CHN, HYD" maxlength="10" required />
+                            <small class="text-muted">Short identifier (e.g., VIJ, BLR, MUM, PUN).</small>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Plant / Service Center Name <span class="text-danger">*</span></label>
+                            <input asp-for="NewLocation.Name" class="form-control" placeholder="e.g. JSW Delhi Steel Center" required />
+                        </div>
+                        <div class="row g-2 mb-3">
+                            <div class="col">
+                                <label class="form-label fw-bold">City</label>
+                                <input asp-for="NewLocation.City" class="form-control" placeholder="e.g. Gurugram" />
+                            </div>
+                            <div class="col">
+                                <label class="form-label fw-bold">State</label>
+                                <input asp-for="NewLocation.State" class="form-control" placeholder="e.g. Haryana" />
+                            </div>
+                        </div>
+                        <div class="form-check form-switch mb-2">
+                            <input class="form-check-input" type="checkbox" asp-for="NewLocation.IsActive" checked id="isActiveSwitch">
+                            <label class="form-check-label" for="isActiveSwitch">Active for Cutting Plans & Orders</label>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-jsw btn-sm">
+                            <i class="bi bi-check-lg me-1"></i> Save Branch
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+}

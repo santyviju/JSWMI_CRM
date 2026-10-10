@@ -79,12 +79,45 @@ namespace JSWMI_CRM.Pages.Account
                 displayName = char.ToUpperInvariant(displayName[0]) + displayName[1..];
             }
 
+            // Retrieve or initialize user profile for Role & Location assignment
+            var userProfile = !string.IsNullOrEmpty(userId) ? await _supabaseService.GetUserProfileAsync(userId) : null;
+            if (userProfile == null && !string.IsNullOrEmpty(userId))
+            {
+                var locations = await _supabaseService.GetLocationsAsync();
+                var defaultLoc = locations.FirstOrDefault(l => l.IsActive) ?? locations.FirstOrDefault();
+
+                // If email contains admin or starts with santosh/santy, set as Admin, otherwise Planner
+                var lowerEmail = (userEmail ?? Email).Trim().ToLowerInvariant();
+                var assignedRole = (lowerEmail.Contains("admin") || lowerEmail.StartsWith("santosh") || lowerEmail.StartsWith("santy"))
+                    ? "Admin"
+                    : "Planner";
+
+                userProfile = new JSWMI_CRM.Models.UserProfile
+                {
+                    UserId = userId,
+                    Email = userEmail ?? Email,
+                    FullName = displayName,
+                    Role = assignedRole,
+                    LocationId = defaultLoc?.Id,
+                    LocationName = defaultLoc?.Name
+                };
+
+                await _supabaseService.SaveUserProfileAsync(userProfile);
+            }
+
+            var role = userProfile?.Role ?? "Planner";
+            var locationId = userProfile?.LocationId ?? string.Empty;
+            var locationName = userProfile?.LocationName ?? "All Locations";
+            var fullName = !string.IsNullOrWhiteSpace(userProfile?.FullName) ? userProfile.FullName : displayName;
+
             var claims = new List<Claim>
             {
                 new(ClaimTypes.NameIdentifier, userId ?? Guid.NewGuid().ToString()),
-                new(ClaimTypes.Name, displayName),
+                new(ClaimTypes.Name, fullName),
                 new(ClaimTypes.Email, userEmail ?? Email),
-                new(ClaimTypes.Role, "Planner")
+                new(ClaimTypes.Role, role),
+                new("LocationId", locationId),
+                new("LocationName", locationName)
             };
 
             var claimsIdentity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);

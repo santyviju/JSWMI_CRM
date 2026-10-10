@@ -40,13 +40,35 @@
 <div class="jsw-card">
     <div class="jsw-card-header bg-light">
         <form method="get" class="row g-2 w-100 align-items-center">
-            <div class="col-12 col-md-5">
+            <div class="col-12 col-md-4">
                 <div class="input-group">
                     <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
-                    <input type="text" name="SearchTerm" value="@Model.SearchTerm" class="form-control" placeholder="Search Plan Code, Mother Coil, Sales Order..." />
+                    <input type="text" name="SearchTerm" value="@Model.SearchTerm" class="form-control" placeholder="Search Plan, Mother Coil, Prepared By, Branch..." />
                     <button type="submit" class="btn btn-primary">Search</button>
                 </div>
             </div>
+            @if (Model.IsAdmin)
+            {
+                <div class="col-12 col-md-3">
+                    <select name="LocationFilter" onchange="this.form.submit()" class="form-select">
+                        <option value="">-- All Branch Locations --</option>
+                        @foreach (var loc in Model.Locations)
+                        {
+                            <option value="@loc.Id" selected="@(Model.LocationFilter == loc.Id)">
+                                @loc.Code - @loc.Name
+                            </option>
+                        }
+                    </select>
+                </div>
+            }
+            else
+            {
+                <div class="col-auto">
+                    <span class="badge bg-primary bg-opacity-10 text-primary border border-primary px-3 py-2">
+                        <i class="bi bi-geo-alt-fill me-1"></i>@(Model.UserLocationName ?? "My Branch")
+                    </span>
+                </div>
+            }
             <div class="col-12 col-md-3">
                 <select name="StatusFilter" onchange="this.form.submit()" class="form-select">
                     <option value="">All SAP Sync Statuses</option>
@@ -55,7 +77,7 @@
                     <option value="Failed" selected="@(Model.StatusFilter == "Failed")">Sync Failed / Error</option>
                 </select>
             </div>
-            @if (!string.IsNullOrEmpty(Model.SearchTerm) || !string.IsNullOrEmpty(Model.StatusFilter))
+            @if (!string.IsNullOrEmpty(Model.SearchTerm) || !string.IsNullOrEmpty(Model.StatusFilter) || !string.IsNullOrEmpty(Model.LocationFilter))
             {
                 <div class="col-auto">
                     <a asp-page="/CuttingPlans/Index" class="btn btn-outline-secondary">Reset Filters</a>
@@ -69,11 +91,12 @@
             <thead>
                 <tr>
                     <th>Plan Code</th>
-                    <th>Sales Order</th>
-                    <th>Customer Name</th>
+                    <th>Branch / Plant</th>
+                    <th>Prepared By</th>
+                    <th>Sales Order & Customer</th>
                     <th>Mother Coil Details</th>
                     <th>Output Specs</th>
-                    <th>Yield / Scrap</th>
+                    <th>Yield</th>
                     <th>SAP B1 Status</th>
                     <th class="text-end">Actions</th>
                 </tr>
@@ -82,9 +105,9 @@
                 @if (Model.CuttingPlans.Count == 0)
                 {
                     <tr>
-                        <td colspan="8" class="text-center py-5 text-muted">
+                        <td colspan="9" class="text-center py-5 text-muted">
                             <i class="bi bi-scissors fs-1 d-block mb-2 text-secondary opacity-50"></i>
-                            No cutting plans found.
+                            No cutting plans found for the selected branch/filter.
                             <div class="mt-2">
                                 <a asp-page="/CuttingPlans/Create" class="btn btn-jsw btn-sm">Create New Plan</a>
                             </div>
@@ -101,10 +124,25 @@
                             <div class="small text-muted">@plan.CreatedAt.ToString("dd-MMM-yyyy HH:mm")</div>
                         </td>
                         <td>
-                            <span class="badge bg-light text-dark border">@plan.SalesOrderDocNum</span>
+                            @if (!string.IsNullOrEmpty(plan.LocationName))
+                            {
+                                <span class="badge bg-primary-subtle text-primary border border-primary-subtle px-2 py-1">
+                                    <i class="bi bi-geo-alt-fill me-1"></i>@plan.LocationName
+                                </span>
+                            }
+                            else
+                            {
+                                <span class="badge bg-light text-muted border">General</span>
+                            }
                         </td>
                         <td>
-                            <div class="fw-semibold text-truncate" style="max-width: 180px;" title="@plan.CustomerName">
+                            <div class="fw-semibold text-dark small">
+                                <i class="bi bi-person-fill text-secondary me-1"></i>@(string.IsNullOrEmpty(plan.PreparedByName) ? plan.CreatedBy : plan.PreparedByName)
+                            </div>
+                        </td>
+                        <td>
+                            <span class="badge bg-light text-dark border mb-1">@plan.SalesOrderDocNum</span>
+                            <div class="fw-semibold text-truncate small" style="max-width: 160px;" title="@plan.CustomerName">
                                 @plan.CustomerName
                             </div>
                         </td>
@@ -115,18 +153,17 @@
                             </div>
                         </td>
                         <td>
-                            <div><span class="fw-bold">@plan.Lines.Count</span> slits / cuts</div>
-                            <div class="small text-muted">@plan.TotalOutputWidth mm output</div>
+                            <div><span class="fw-bold">@plan.Lines.Count</span> slits</div>
+                            <div class="small text-muted">@plan.TotalOutputWidth mm</div>
                         </td>
                         <td>
                             <div class="d-flex align-items-center gap-2">
-                                <div class="progress flex-grow-1" style="height: 6px; width: 60px;">
+                                <div class="progress flex-grow-1" style="height: 6px; width: 50px;">
                                     <div class="progress-bar @(plan.YieldPercentage >= 95 ? "bg-success" : (plan.YieldPercentage >= 85 ? "bg-primary" : "bg-warning"))" 
                                          role="progressbar" style="width: @plan.YieldPercentage%"></div>
                                 </div>
                                 <span class="small fw-bold">@plan.YieldPercentage%</span>
                             </div>
-                            <div class="small text-muted">Scrap: @plan.ScrapWidth mm</div>
                         </td>
                         <td>
                             @if (plan.SapSyncStatus == "Synced")
@@ -150,6 +187,14 @@
                         </td>
                         <td class="text-end">
                             <div class="btn-group btn-group-sm">
+                                @{
+                                    var quickWa = Uri.EscapeDataString(
+                                        $"*JSW Cutting Plan Update*\nPlan: {plan.PlanCode}\nCustomer: {plan.CustomerName}\nBranch: {plan.LocationName}\nPrepared By: {plan.PreparedByName}\nMother Coil: {plan.MotherCoilNo}\nYield: {plan.YieldPercentage}%\nLink: https://jswmi-crm.onrender.com/CuttingPlans/Details/{plan.Id}"
+                                    );
+                                }
+                                <a href="https://wa.me/?text=@quickWa" target="_blank" rel="noopener noreferrer" class="btn btn-outline-success" title="Share via WhatsApp" style="color: #25D366;">
+                                    <i class="bi bi-whatsapp"></i>
+                                </a>
                                 <a asp-page="/CuttingPlans/Details" asp-route-id="@plan.Id" class="btn btn-outline-secondary" title="View Details">
                                     <i class="bi bi-eye"></i>
                                 </a>
@@ -157,7 +202,7 @@
                                 {
                                     <form method="post" asp-page-handler="SyncToSap" asp-route-id="@plan.Id" class="d-inline">
                                         <button type="submit" class="btn btn-success" title="Push to SAP B1 API">
-                                            <i class="bi bi-cloud-upload"></i> Push SAP
+                                            <i class="bi bi-cloud-upload"></i>
                                         </button>
                                     </form>
                                 }

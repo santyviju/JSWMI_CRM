@@ -32,8 +32,11 @@ namespace JSWMI_CRM.Pages.CuttingPlans
         public string? SalesOrderId { get; set; }
 
         public List<SelectListItem> SalesOrderOptions { get; set; } = new();
+        public List<SelectListItem> LocationOptions { get; set; } = new();
 
         public List<SalesOrder> AvailableSalesOrders { get; set; } = new();
+
+        public bool IsAdmin => User.IsInRole("Admin");
 
         [BindProperty]
         public CuttingPlan Plan { get; set; } = new();
@@ -57,6 +60,17 @@ namespace JSWMI_CRM.Pages.CuttingPlans
         {
             await LoadDropdownsAsync();
 
+            Plan.PreparedByName = User.Identity?.Name ?? "Planner";
+            Plan.PreparedByUserId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            Plan.LocationId = User.FindFirst("LocationId")?.Value;
+            Plan.LocationName = User.FindFirst("LocationName")?.Value;
+
+            if (string.IsNullOrEmpty(Plan.LocationId) && LocationOptions.Count > 0)
+            {
+                Plan.LocationId = LocationOptions[0].Value;
+                Plan.LocationName = LocationOptions[0].Text;
+            }
+
             if (!string.IsNullOrEmpty(SalesOrderId))
             {
                 var so = await _supabaseService.GetSalesOrderByIdAsync(SalesOrderId);
@@ -65,6 +79,11 @@ namespace JSWMI_CRM.Pages.CuttingPlans
                     Plan.SalesOrderId = so.Id;
                     Plan.SalesOrderDocNum = so.DocNum;
                     Plan.CustomerName = so.CardName;
+                    if (!string.IsNullOrEmpty(so.LocationId))
+                    {
+                        Plan.LocationId = so.LocationId;
+                        Plan.LocationName = so.LocationName;
+                    }
 
                     if (so.Items.Count > 0)
                     {
@@ -187,6 +206,27 @@ namespace JSWMI_CRM.Pages.CuttingPlans
                 return Page();
             }
 
+            // Set audit tracking: Prepared By & Location
+            if (string.IsNullOrEmpty(Plan.PreparedByUserId))
+            {
+                Plan.PreparedByUserId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            }
+            if (string.IsNullOrEmpty(Plan.PreparedByName))
+            {
+                Plan.PreparedByName = User.Identity?.Name ?? "Planner";
+            }
+
+            if (!string.IsNullOrEmpty(Plan.LocationId))
+            {
+                var loc = await _supabaseService.GetLocationByIdAsync(Plan.LocationId);
+                Plan.LocationName = loc?.Name;
+            }
+            else
+            {
+                Plan.LocationId = User.FindFirst("LocationId")?.Value;
+                Plan.LocationName = User.FindFirst("LocationName")?.Value;
+            }
+
             // Save to Supabase (and local store)
             var savedPlan = await _supabaseService.SaveCuttingPlanAsync(Plan);
 
@@ -212,11 +252,21 @@ namespace JSWMI_CRM.Pages.CuttingPlans
 
         private async Task LoadDropdownsAsync()
         {
-            AvailableSalesOrders = await _supabaseService.GetSalesOrdersAsync();
+            var userLocationId = User.FindFirst("LocationId")?.Value;
+            bool isAdmin = User.IsInRole("Admin");
+
+            AvailableSalesOrders = await _supabaseService.GetSalesOrdersAsync(userLocationId, isAdmin);
             SalesOrderOptions = AvailableSalesOrders.Select(x => new SelectListItem
             {
                 Value = x.Id,
-                Text = $"{x.DocNum} - {x.CardName} (Due: {x.DocDueDate:dd-MMM})"
+                Text = $"{x.DocNum} - {x.CardName} (Due: {x.DocDueDate:dd-MMM}) {(string.IsNullOrEmpty(x.LocationName) ? "" : $"[{x.LocationName}]")}"
+            }).ToList();
+
+            var locations = await _supabaseService.GetLocationsAsync();
+            LocationOptions = locations.Where(l => l.IsActive).Select(l => new SelectListItem
+            {
+                Value = l.Id,
+                Text = $"{l.Code} - {l.Name}"
             }).ToList();
         }
     }

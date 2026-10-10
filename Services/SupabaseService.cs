@@ -22,6 +22,8 @@ namespace JSWMI_CRM.Services
         // In-memory persistent caches for ultra-fast UI rendering & offline development
         private static readonly ConcurrentDictionary<string, SalesOrder> _salesOrders = new();
         private static readonly ConcurrentDictionary<string, CuttingPlan> _cuttingPlans = new();
+        private static readonly ConcurrentDictionary<string, Location> _locations = new();
+        private static readonly ConcurrentDictionary<string, UserProfile> _userProfiles = new();
         private static readonly List<SapSyncLog> _syncLogs = new();
         private static readonly object _syncLock = new();
 
@@ -39,6 +41,7 @@ namespace JSWMI_CRM.Services
             };
 
             EnsureSeedData();
+            _ = Task.Run(async () => await EnsureDatabaseSchemaAsync());
         }
 
         public SupabaseConfig GetConfig() => _config;
@@ -182,7 +185,7 @@ namespace JSWMI_CRM.Services
 
         private NpgsqlConnection CreateConnection() => new NpgsqlConnection(_config.ConnectionString);
 
-        public async Task<List<SalesOrder>> GetSalesOrdersAsync()
+        public async Task<List<SalesOrder>> GetSalesOrdersAsync(string? locationId = null, bool isAdmin = true)
         {
             if (HasDatabaseConnection)
             {
@@ -192,13 +195,30 @@ namespace JSWMI_CRM.Services
                     await conn.OpenAsync();
 
                     var orders = new List<SalesOrder>();
-                    const string sqlOrders = @"SELECT id, doc_num, doc_entry, card_code, card_name, doc_date, doc_due_date, 
-                                               doc_total, currency, status, remarks, created_at, updated_at 
-                                               FROM sales_orders ORDER BY doc_date DESC;";
+                    string sqlOrders = @"SELECT id, doc_num, doc_entry, card_code, card_name, doc_date, doc_due_date, 
+                                                doc_total, currency, status, remarks, created_at, updated_at,
+                                                location_id, location_name, created_by_user_id, created_by_name 
+                                         FROM sales_orders";
+
+                    if (!isAdmin && !string.IsNullOrEmpty(locationId))
+                    {
+                        sqlOrders += " WHERE (location_id = @locId OR location_id IS NULL)";
+                    }
+                    else if (isAdmin && !string.IsNullOrEmpty(locationId))
+                    {
+                        sqlOrders += " WHERE location_id = @locId";
+                    }
+
+                    sqlOrders += " ORDER BY doc_date DESC;";
 
                     await using (var cmd = new NpgsqlCommand(sqlOrders, conn))
-                    await using (var reader = await cmd.ExecuteReaderAsync())
                     {
+                        if (!string.IsNullOrEmpty(locationId))
+                        {
+                            cmd.Parameters.AddWithValue("@locId", locationId);
+                        }
+
+                        await using var reader = await cmd.ExecuteReaderAsync();
                         while (await reader.ReadAsync())
                         {
                             orders.Add(new SalesOrder
@@ -216,6 +236,10 @@ namespace JSWMI_CRM.Services
                                 Remarks = reader.IsDBNull(10) ? null : reader.GetString(10),
                                 CreatedAt = reader.IsDBNull(11) ? DateTime.UtcNow : reader.GetDateTime(11),
                                 UpdatedAt = reader.IsDBNull(12) ? DateTime.UtcNow : reader.GetDateTime(12),
+                                LocationId = reader.IsDBNull(13) ? null : reader.GetString(13),
+                                LocationName = reader.IsDBNull(14) ? null : reader.GetString(14),
+                                CreatedByUserId = reader.IsDBNull(15) ? null : reader.GetString(15),
+                                CreatedByName = reader.IsDBNull(16) ? null : reader.GetString(16),
                                 Items = new List<SalesOrderItem>()
                             });
                         }
@@ -262,8 +286,16 @@ namespace JSWMI_CRM.Services
                 }
             }
 
-            var list = _salesOrders.Values.OrderByDescending(x => x.DocDate).ToList();
-            return list;
+            var list = _salesOrders.Values.AsEnumerable();
+            if (!isAdmin && !string.IsNullOrEmpty(locationId))
+            {
+                list = list.Where(x => x.LocationId == locationId || string.IsNullOrEmpty(x.LocationId));
+            }
+            else if (isAdmin && !string.IsNullOrEmpty(locationId))
+            {
+                list = list.Where(x => x.LocationId == locationId);
+            }
+            return list.OrderByDescending(x => x.DocDate).ToList();
         }
 
         public async Task<SalesOrder?> GetSalesOrderByIdAsync(string id)
@@ -277,7 +309,8 @@ namespace JSWMI_CRM.Services
 
                     SalesOrder? order = null;
                     const string sqlOrder = @"SELECT id, doc_num, doc_entry, card_code, card_name, doc_date, doc_due_date, 
-                                                     doc_total, currency, status, remarks, created_at, updated_at 
+                                                     doc_total, currency, status, remarks, created_at, updated_at,
+                                                     location_id, location_name, created_by_user_id, created_by_name 
                                               FROM sales_orders WHERE id = @id LIMIT 1;";
 
                     await using (var cmd = new NpgsqlCommand(sqlOrder, conn))
@@ -301,6 +334,10 @@ namespace JSWMI_CRM.Services
                                 Remarks = reader.IsDBNull(10) ? null : reader.GetString(10),
                                 CreatedAt = reader.IsDBNull(11) ? DateTime.UtcNow : reader.GetDateTime(11),
                                 UpdatedAt = reader.IsDBNull(12) ? DateTime.UtcNow : reader.GetDateTime(12),
+                                LocationId = reader.IsDBNull(13) ? null : reader.GetString(13),
+                                LocationName = reader.IsDBNull(14) ? null : reader.GetString(14),
+                                CreatedByUserId = reader.IsDBNull(15) ? null : reader.GetString(15),
+                                CreatedByName = reader.IsDBNull(16) ? null : reader.GetString(16),
                                 Items = new List<SalesOrderItem>()
                             };
                         }
@@ -364,8 +401,11 @@ namespace JSWMI_CRM.Services
                     await using var conn = CreateConnection();
                     await conn.OpenAsync();
 
-                    const string sqlUpsert = @"INSERT INTO sales_orders (id, doc_num, doc_entry, card_code, card_name, doc_date, doc_due_date, doc_total, currency, status, remarks, created_at, updated_at)
-                        VALUES (@id, @doc_num, @doc_entry, @card_code, @card_name, @doc_date, @doc_due_date, @doc_total, @currency, @status, @remarks, @created_at, @updated_at)
+                    const string sqlUpsert = @"INSERT INTO sales_orders (
+                        id, doc_num, doc_entry, card_code, card_name, doc_date, doc_due_date, doc_total, currency, status, remarks, created_at, updated_at,
+                        location_id, location_name, created_by_user_id, created_by_name)
+                        VALUES (@id, @doc_num, @doc_entry, @card_code, @card_name, @doc_date, @doc_due_date, @doc_total, @currency, @status, @remarks, @created_at, @updated_at,
+                                @location_id, @location_name, @created_by_user_id, @created_by_name)
                         ON CONFLICT (id) DO UPDATE SET
                             doc_num = EXCLUDED.doc_num,
                             doc_entry = EXCLUDED.doc_entry,
@@ -377,7 +417,11 @@ namespace JSWMI_CRM.Services
                             currency = EXCLUDED.currency,
                             status = EXCLUDED.status,
                             remarks = EXCLUDED.remarks,
-                            updated_at = EXCLUDED.updated_at;";
+                            updated_at = EXCLUDED.updated_at,
+                            location_id = EXCLUDED.location_id,
+                            location_name = EXCLUDED.location_name,
+                            created_by_user_id = EXCLUDED.created_by_user_id,
+                            created_by_name = EXCLUDED.created_by_name;";
 
                     await using (var cmd = new NpgsqlCommand(sqlUpsert, conn))
                     {
@@ -394,6 +438,10 @@ namespace JSWMI_CRM.Services
                         cmd.Parameters.AddWithValue("@remarks", (object?)order.Remarks ?? DBNull.Value);
                         cmd.Parameters.AddWithValue("@created_at", order.CreatedAt);
                         cmd.Parameters.AddWithValue("@updated_at", order.UpdatedAt);
+                        cmd.Parameters.AddWithValue("@location_id", (object?)order.LocationId ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@location_name", (object?)order.LocationName ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@created_by_user_id", (object?)order.CreatedByUserId ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@created_by_name", (object?)order.CreatedByName ?? DBNull.Value);
                         await cmd.ExecuteNonQueryAsync();
                     }
                 }
@@ -427,7 +475,7 @@ namespace JSWMI_CRM.Services
             return removed;
         }
 
-        public async Task<List<CuttingPlan>> GetCuttingPlansAsync()
+        public async Task<List<CuttingPlan>> GetCuttingPlansAsync(string? locationId = null, bool isAdmin = true, string? userId = null)
         {
             if (HasDatabaseConnection)
             {
@@ -437,16 +485,42 @@ namespace JSWMI_CRM.Services
                     await conn.OpenAsync();
 
                     var plans = new List<CuttingPlan>();
-                    const string sqlPlans = @"SELECT id, plan_code, sales_order_id, sales_order_doc_num, customer_name,
+                    string sqlPlans = @"SELECT id, plan_code, sales_order_id, sales_order_doc_num, customer_name,
                                                      mother_coil_no, heat_no, grade, mother_width, mother_thickness, mother_weight,
                                                      total_output_width, scrap_width, total_output_weight, yield_percentage,
                                                      status, sap_doc_entry, sap_doc_num, sap_sync_status, sap_sync_message,
-                                                     sap_sync_timestamp, remarks, created_by, created_at, updated_at
-                                              FROM cutting_plans ORDER BY created_at DESC;";
+                                                     sap_sync_timestamp, remarks, created_by, created_at, updated_at,
+                                                     location_id, location_name, prepared_by_user_id, prepared_by_name
+                                      FROM cutting_plans";
+
+                    if (!isAdmin)
+                    {
+                        if (!string.IsNullOrEmpty(locationId) && !string.IsNullOrEmpty(userId))
+                        {
+                            sqlPlans += " WHERE (location_id = @locId OR prepared_by_user_id = @userId)";
+                        }
+                        else if (!string.IsNullOrEmpty(locationId))
+                        {
+                            sqlPlans += " WHERE location_id = @locId";
+                        }
+                        else if (!string.IsNullOrEmpty(userId))
+                        {
+                            sqlPlans += " WHERE prepared_by_user_id = @userId";
+                        }
+                    }
+                    else if (isAdmin && !string.IsNullOrEmpty(locationId))
+                    {
+                        sqlPlans += " WHERE location_id = @locId";
+                    }
+
+                    sqlPlans += " ORDER BY created_at DESC;";
 
                     await using (var cmd = new NpgsqlCommand(sqlPlans, conn))
-                    await using (var reader = await cmd.ExecuteReaderAsync())
                     {
+                        if (!string.IsNullOrEmpty(locationId)) cmd.Parameters.AddWithValue("@locId", locationId);
+                        if (!string.IsNullOrEmpty(userId)) cmd.Parameters.AddWithValue("@userId", userId);
+
+                        await using var reader = await cmd.ExecuteReaderAsync();
                         while (await reader.ReadAsync())
                         {
                             plans.Add(new CuttingPlan
@@ -476,6 +550,10 @@ namespace JSWMI_CRM.Services
                                 CreatedBy = reader.IsDBNull(22) ? "Planner" : reader.GetString(22),
                                 CreatedAt = reader.IsDBNull(23) ? DateTime.UtcNow : reader.GetDateTime(23),
                                 UpdatedAt = reader.IsDBNull(24) ? DateTime.UtcNow : reader.GetDateTime(24),
+                                LocationId = reader.IsDBNull(25) ? null : reader.GetString(25),
+                                LocationName = reader.IsDBNull(26) ? null : reader.GetString(26),
+                                PreparedByUserId = reader.IsDBNull(27) ? null : reader.GetString(27),
+                                PreparedByName = reader.IsDBNull(28) ? null : reader.GetString(28),
                                 Lines = new List<CuttingPlanLine>()
                             });
                         }
@@ -525,7 +603,27 @@ namespace JSWMI_CRM.Services
                 }
             }
 
-            return _cuttingPlans.Values.OrderByDescending(x => x.CreatedAt).ToList();
+            var cached = _cuttingPlans.Values.AsEnumerable();
+            if (!isAdmin)
+            {
+                if (!string.IsNullOrEmpty(locationId) && !string.IsNullOrEmpty(userId))
+                {
+                    cached = cached.Where(x => x.LocationId == locationId || x.PreparedByUserId == userId);
+                }
+                else if (!string.IsNullOrEmpty(locationId))
+                {
+                    cached = cached.Where(x => x.LocationId == locationId);
+                }
+                else if (!string.IsNullOrEmpty(userId))
+                {
+                    cached = cached.Where(x => x.PreparedByUserId == userId);
+                }
+            }
+            else if (isAdmin && !string.IsNullOrEmpty(locationId))
+            {
+                cached = cached.Where(x => x.LocationId == locationId);
+            }
+            return cached.OrderByDescending(x => x.CreatedAt).ToList();
         }
 
         public async Task<CuttingPlan?> GetCuttingPlanByIdAsync(string id)
@@ -542,7 +640,8 @@ namespace JSWMI_CRM.Services
                                                     mother_coil_no, heat_no, grade, mother_width, mother_thickness, mother_weight,
                                                     total_output_width, scrap_width, total_output_weight, yield_percentage,
                                                     status, sap_doc_entry, sap_doc_num, sap_sync_status, sap_sync_message,
-                                                    sap_sync_timestamp, remarks, created_by, created_at, updated_at
+                                                    sap_sync_timestamp, remarks, created_by, created_at, updated_at,
+                                                    location_id, location_name, prepared_by_user_id, prepared_by_name
                                              FROM cutting_plans WHERE id = @id LIMIT 1;";
 
                     await using (var cmd = new NpgsqlCommand(sqlPlan, conn))
@@ -578,6 +677,10 @@ namespace JSWMI_CRM.Services
                                 CreatedBy = reader.IsDBNull(22) ? "Planner" : reader.GetString(22),
                                 CreatedAt = reader.IsDBNull(23) ? DateTime.UtcNow : reader.GetDateTime(23),
                                 UpdatedAt = reader.IsDBNull(24) ? DateTime.UtcNow : reader.GetDateTime(24),
+                                LocationId = reader.IsDBNull(25) ? null : reader.GetString(25),
+                                LocationName = reader.IsDBNull(26) ? null : reader.GetString(26),
+                                PreparedByUserId = reader.IsDBNull(27) ? null : reader.GetString(27),
+                                PreparedByName = reader.IsDBNull(28) ? null : reader.GetString(28),
                                 Lines = new List<CuttingPlanLine>()
                             };
                         }
@@ -656,13 +759,15 @@ namespace JSWMI_CRM.Services
                         mother_coil_no, heat_no, grade, mother_width, mother_thickness, mother_weight,
                         total_output_width, scrap_width, total_output_weight, yield_percentage,
                         status, sap_doc_entry, sap_doc_num, sap_sync_status, sap_sync_message,
-                        sap_sync_timestamp, remarks, created_by, created_at, updated_at
+                        sap_sync_timestamp, remarks, created_by, created_at, updated_at,
+                        location_id, location_name, prepared_by_user_id, prepared_by_name
                     ) VALUES (
                         @id, @plan_code, @sales_order_id, @sales_order_doc_num, @customer_name,
                         @mother_coil_no, @heat_no, @grade, @mother_width, @mother_thickness, @mother_weight,
                         @total_output_width, @scrap_width, @total_output_weight, @yield_percentage,
                         @status, @sap_doc_entry, @sap_doc_num, @sap_sync_status, @sap_sync_message,
-                        @sap_sync_timestamp, @remarks, @created_by, @created_at, @updated_at
+                        @sap_sync_timestamp, @remarks, @created_by, @created_at, @updated_at,
+                        @location_id, @location_name, @prepared_by_user_id, @prepared_by_name
                     )
                     ON CONFLICT (id) DO UPDATE SET
                         plan_code = EXCLUDED.plan_code,
@@ -686,7 +791,11 @@ namespace JSWMI_CRM.Services
                         sap_sync_message = EXCLUDED.sap_sync_message,
                         sap_sync_timestamp = EXCLUDED.sap_sync_timestamp,
                         remarks = EXCLUDED.remarks,
-                        updated_at = EXCLUDED.updated_at;";
+                        updated_at = EXCLUDED.updated_at,
+                        location_id = EXCLUDED.location_id,
+                        location_name = EXCLUDED.location_name,
+                        prepared_by_user_id = EXCLUDED.prepared_by_user_id,
+                        prepared_by_name = EXCLUDED.prepared_by_name;";
 
                     await using (var cmd = new NpgsqlCommand(sqlUpsertPlan, conn, trans))
                     {
@@ -715,6 +824,10 @@ namespace JSWMI_CRM.Services
                         cmd.Parameters.AddWithValue("@created_by", plan.CreatedBy);
                         cmd.Parameters.AddWithValue("@created_at", plan.CreatedAt);
                         cmd.Parameters.AddWithValue("@updated_at", plan.UpdatedAt);
+                        cmd.Parameters.AddWithValue("@location_id", (object?)plan.LocationId ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@location_name", (object?)plan.LocationName ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@prepared_by_user_id", (object?)plan.PreparedByUserId ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@prepared_by_name", (object?)plan.PreparedByName ?? DBNull.Value);
                         await cmd.ExecuteNonQueryAsync();
                     }
 
@@ -838,6 +951,346 @@ namespace JSWMI_CRM.Services
             }
         }
 
+        public async Task<List<Location>> GetLocationsAsync(bool onlyActive = false)
+        {
+            if (HasDatabaseConnection)
+            {
+                try
+                {
+                    await using var conn = CreateConnection();
+                    await conn.OpenAsync();
+
+                    var list = new List<Location>();
+                    string sql = "SELECT id, code, name, city, state, is_active, created_at FROM locations";
+                    if (onlyActive) sql += " WHERE is_active = TRUE";
+                    sql += " ORDER BY name;";
+
+                    await using var cmd = new NpgsqlCommand(sql, conn);
+                    await using var reader = await cmd.ExecuteReaderAsync();
+                    while (await reader.ReadAsync())
+                    {
+                        list.Add(new Location
+                        {
+                            Id = reader.GetString(0),
+                            Code = reader.GetString(1),
+                            Name = reader.GetString(2),
+                            City = reader.IsDBNull(3) ? null : reader.GetString(3),
+                            State = reader.IsDBNull(4) ? null : reader.GetString(4),
+                            IsActive = reader.GetBoolean(5),
+                            CreatedAt = reader.IsDBNull(6) ? DateTime.UtcNow : reader.GetDateTime(6)
+                        });
+                    }
+
+                    if (list.Count > 0)
+                    {
+                        foreach (var l in list) _locations[l.Id] = l;
+                        return list;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to load locations from database; falling back to cache.");
+                }
+            }
+
+            var cached = _locations.Values.AsEnumerable();
+            if (onlyActive) cached = cached.Where(x => x.IsActive);
+            return cached.OrderBy(x => x.Name).ToList();
+        }
+
+        public async Task<Location?> GetLocationByIdAsync(string id)
+        {
+            if (HasDatabaseConnection)
+            {
+                try
+                {
+                    await using var conn = CreateConnection();
+                    await conn.OpenAsync();
+                    const string sql = "SELECT id, code, name, city, state, is_active, created_at FROM locations WHERE id = @id LIMIT 1;";
+                    await using var cmd = new NpgsqlCommand(sql, conn);
+                    cmd.Parameters.AddWithValue("@id", id);
+                    await using var reader = await cmd.ExecuteReaderAsync();
+                    if (await reader.ReadAsync())
+                    {
+                        var loc = new Location
+                        {
+                            Id = reader.GetString(0),
+                            Code = reader.GetString(1),
+                            Name = reader.GetString(2),
+                            City = reader.IsDBNull(3) ? null : reader.GetString(3),
+                            State = reader.IsDBNull(4) ? null : reader.GetString(4),
+                            IsActive = reader.GetBoolean(5),
+                            CreatedAt = reader.IsDBNull(6) ? DateTime.UtcNow : reader.GetDateTime(6)
+                        };
+                        _locations[loc.Id] = loc;
+                        return loc;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to load location {Id} from database", id);
+                }
+            }
+
+            _locations.TryGetValue(id, out var cached);
+            return cached;
+        }
+
+        public async Task<Location> SaveLocationAsync(Location location)
+        {
+            if (string.IsNullOrWhiteSpace(location.Id))
+            {
+                location.Id = "LOC-" + (string.IsNullOrWhiteSpace(location.Code) ? Guid.NewGuid().ToString("N")[..6].ToUpperInvariant() : location.Code.ToUpperInvariant());
+            }
+
+            _locations[location.Id] = location;
+
+            if (HasDatabaseConnection)
+            {
+                try
+                {
+                    await using var conn = CreateConnection();
+                    await conn.OpenAsync();
+
+                    const string sql = @"INSERT INTO locations (id, code, name, city, state, is_active, created_at)
+                        VALUES (@id, @code, @name, @city, @state, @is_active, @created_at)
+                        ON CONFLICT (id) DO UPDATE SET
+                            code = EXCLUDED.code,
+                            name = EXCLUDED.name,
+                            city = EXCLUDED.city,
+                            state = EXCLUDED.state,
+                            is_active = EXCLUDED.is_active;";
+
+                    await using var cmd = new NpgsqlCommand(sql, conn);
+                    cmd.Parameters.AddWithValue("@id", location.Id);
+                    cmd.Parameters.AddWithValue("@code", location.Code.ToUpperInvariant());
+                    cmd.Parameters.AddWithValue("@name", location.Name);
+                    cmd.Parameters.AddWithValue("@city", (object?)location.City ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@state", (object?)location.State ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@is_active", location.IsActive);
+                    cmd.Parameters.AddWithValue("@created_at", location.CreatedAt);
+                    await cmd.ExecuteNonQueryAsync();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to persist location {Id} to database", location.Id);
+                }
+            }
+
+            return location;
+        }
+
+        public async Task<bool> DeleteLocationAsync(string id)
+        {
+            var removed = _locations.TryRemove(id, out _);
+            if (HasDatabaseConnection)
+            {
+                try
+                {
+                    await using var conn = CreateConnection();
+                    await conn.OpenAsync();
+                    await using var cmd = new NpgsqlCommand("DELETE FROM locations WHERE id = @id;", conn);
+                    cmd.Parameters.AddWithValue("@id", id);
+                    await cmd.ExecuteNonQueryAsync();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to delete location {Id} from database", id);
+                }
+            }
+            return removed;
+        }
+
+        public async Task<UserProfile?> GetUserProfileAsync(string userId)
+        {
+            if (HasDatabaseConnection)
+            {
+                try
+                {
+                    await using var conn = CreateConnection();
+                    await conn.OpenAsync();
+                    const string sql = @"SELECT user_id, email, full_name, role, location_id, location_name, phone_number, created_at, updated_at
+                                         FROM user_profiles WHERE user_id = @userId LIMIT 1;";
+                    await using var cmd = new NpgsqlCommand(sql, conn);
+                    cmd.Parameters.AddWithValue("@userId", userId);
+                    await using var reader = await cmd.ExecuteReaderAsync();
+                    if (await reader.ReadAsync())
+                    {
+                        var profile = new UserProfile
+                        {
+                            UserId = reader.GetString(0),
+                            Email = reader.GetString(1),
+                            FullName = reader.IsDBNull(2) ? "" : reader.GetString(2),
+                            Role = reader.IsDBNull(3) ? "Planner" : reader.GetString(3),
+                            LocationId = reader.IsDBNull(4) ? null : reader.GetString(4),
+                            LocationName = reader.IsDBNull(5) ? null : reader.GetString(5),
+                            PhoneNumber = reader.IsDBNull(6) ? null : reader.GetString(6),
+                            CreatedAt = reader.IsDBNull(7) ? DateTime.UtcNow : reader.GetDateTime(7),
+                            UpdatedAt = reader.IsDBNull(8) ? DateTime.UtcNow : reader.GetDateTime(8)
+                        };
+                        _userProfiles[profile.UserId] = profile;
+                        return profile;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to load user profile {UserId} from database", userId);
+                }
+            }
+
+            _userProfiles.TryGetValue(userId, out var cached);
+            return cached;
+        }
+
+        public async Task<UserProfile> SaveUserProfileAsync(UserProfile profile)
+        {
+            profile.UpdatedAt = DateTime.UtcNow;
+            _userProfiles[profile.UserId] = profile;
+
+            if (HasDatabaseConnection)
+            {
+                try
+                {
+                    await using var conn = CreateConnection();
+                    await conn.OpenAsync();
+
+                    const string sql = @"INSERT INTO user_profiles (user_id, email, full_name, role, location_id, location_name, phone_number, created_at, updated_at)
+                        VALUES (@user_id, @email, @full_name, @role, @location_id, @location_name, @phone_number, @created_at, @updated_at)
+                        ON CONFLICT (user_id) DO UPDATE SET
+                            email = EXCLUDED.email,
+                            full_name = EXCLUDED.full_name,
+                            role = EXCLUDED.role,
+                            location_id = EXCLUDED.location_id,
+                            location_name = EXCLUDED.location_name,
+                            phone_number = EXCLUDED.phone_number,
+                            updated_at = EXCLUDED.updated_at;";
+
+                    await using var cmd = new NpgsqlCommand(sql, conn);
+                    cmd.Parameters.AddWithValue("@user_id", profile.UserId);
+                    cmd.Parameters.AddWithValue("@email", profile.Email);
+                    cmd.Parameters.AddWithValue("@full_name", profile.FullName);
+                    cmd.Parameters.AddWithValue("@role", profile.Role);
+                    cmd.Parameters.AddWithValue("@location_id", (object?)profile.LocationId ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@location_name", (object?)profile.LocationName ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@phone_number", (object?)profile.PhoneNumber ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@created_at", profile.CreatedAt);
+                    cmd.Parameters.AddWithValue("@updated_at", profile.UpdatedAt);
+                    await cmd.ExecuteNonQueryAsync();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to persist user profile {UserId} to database", profile.UserId);
+                }
+            }
+
+            return profile;
+        }
+
+        public async Task<List<UserProfile>> GetAllUserProfilesAsync()
+        {
+            if (HasDatabaseConnection)
+            {
+                try
+                {
+                    await using var conn = CreateConnection();
+                    await conn.OpenAsync();
+                    var list = new List<UserProfile>();
+                    const string sql = @"SELECT user_id, email, full_name, role, location_id, location_name, phone_number, created_at, updated_at
+                                         FROM user_profiles ORDER BY full_name;";
+                    await using var cmd = new NpgsqlCommand(sql, conn);
+                    await using var reader = await cmd.ExecuteReaderAsync();
+                    while (await reader.ReadAsync())
+                    {
+                        list.Add(new UserProfile
+                        {
+                            UserId = reader.GetString(0),
+                            Email = reader.GetString(1),
+                            FullName = reader.IsDBNull(2) ? "" : reader.GetString(2),
+                            Role = reader.IsDBNull(3) ? "Planner" : reader.GetString(3),
+                            LocationId = reader.IsDBNull(4) ? null : reader.GetString(4),
+                            LocationName = reader.IsDBNull(5) ? null : reader.GetString(5),
+                            PhoneNumber = reader.IsDBNull(6) ? null : reader.GetString(6),
+                            CreatedAt = reader.IsDBNull(7) ? DateTime.UtcNow : reader.GetDateTime(7),
+                            UpdatedAt = reader.IsDBNull(8) ? DateTime.UtcNow : reader.GetDateTime(8)
+                        });
+                    }
+
+                    if (list.Count > 0)
+                    {
+                        foreach (var p in list) _userProfiles[p.UserId] = p;
+                        return list;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to load user profiles from database; falling back to cache.");
+                }
+            }
+
+            return _userProfiles.Values.OrderBy(x => x.FullName).ToList();
+        }
+
+        public async Task EnsureDatabaseSchemaAsync()
+        {
+            if (!HasDatabaseConnection) return;
+
+            try
+            {
+                await using var conn = CreateConnection();
+                await conn.OpenAsync();
+
+                const string ddl = @"
+                    CREATE TABLE IF NOT EXISTS locations (
+                        id VARCHAR(64) PRIMARY KEY,
+                        code VARCHAR(20) NOT NULL UNIQUE,
+                        name VARCHAR(150) NOT NULL,
+                        city VARCHAR(100),
+                        state VARCHAR(100),
+                        is_active BOOLEAN DEFAULT TRUE,
+                        created_at TIMESTAMPTZ DEFAULT NOW()
+                    );
+
+                    CREATE TABLE IF NOT EXISTS user_profiles (
+                        user_id VARCHAR(64) PRIMARY KEY,
+                        email VARCHAR(200) NOT NULL,
+                        full_name VARCHAR(150),
+                        role VARCHAR(50) DEFAULT 'Planner',
+                        location_id VARCHAR(64) REFERENCES locations(id) ON DELETE SET NULL,
+                        location_name VARCHAR(150),
+                        phone_number VARCHAR(50),
+                        created_at TIMESTAMPTZ DEFAULT NOW(),
+                        updated_at TIMESTAMPTZ DEFAULT NOW()
+                    );
+
+                    ALTER TABLE sales_orders ADD COLUMN IF NOT EXISTS location_id VARCHAR(64) REFERENCES locations(id) ON DELETE SET NULL;
+                    ALTER TABLE sales_orders ADD COLUMN IF NOT EXISTS location_name VARCHAR(150);
+                    ALTER TABLE sales_orders ADD COLUMN IF NOT EXISTS created_by_user_id VARCHAR(64);
+                    ALTER TABLE sales_orders ADD COLUMN IF NOT EXISTS created_by_name VARCHAR(150);
+
+                    ALTER TABLE cutting_plans ADD COLUMN IF NOT EXISTS location_id VARCHAR(64) REFERENCES locations(id) ON DELETE SET NULL;
+                    ALTER TABLE cutting_plans ADD COLUMN IF NOT EXISTS location_name VARCHAR(150);
+                    ALTER TABLE cutting_plans ADD COLUMN IF NOT EXISTS prepared_by_user_id VARCHAR(64);
+                    ALTER TABLE cutting_plans ADD COLUMN IF NOT EXISTS prepared_by_name VARCHAR(150);
+
+                    INSERT INTO locations (id, code, name, city, state, is_active)
+                    VALUES
+                    ('LOC-VIJ', 'VIJ', 'JSW Vijayanagar Processing Center', 'Toranagallu', 'Karnataka', TRUE),
+                    ('LOC-BLR', 'BLR', 'JSW Bellary Service Center', 'Bellary', 'Karnataka', TRUE),
+                    ('LOC-MUM', 'MUM', 'JSW Kalamboli Coil Service Center', 'Navi Mumbai', 'Maharashtra', TRUE),
+                    ('LOC-PUN', 'PUN', 'JSW Chakan Automotive Service Center', 'Pune', 'Maharashtra', TRUE)
+                    ON CONFLICT (code) DO NOTHING;
+                ";
+
+                await using var cmd = new NpgsqlCommand(ddl, conn);
+                await cmd.ExecuteNonQueryAsync();
+                _logger.LogInformation("Supabase PostgreSQL schema migration completed successfully (Locations, UserProfiles, Audit columns).");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Schema migration notice: {Message}", ex.Message);
+            }
+        }
+
         public async Task<List<SapSyncLog>> GetSyncLogsAsync()
         {
             if (HasDatabaseConnection)
@@ -934,6 +1387,55 @@ namespace JSWMI_CRM.Services
 
         private void EnsureSeedData()
         {
+            if (_locations.IsEmpty)
+            {
+                var locVij = new Location
+                {
+                    Id = "LOC-VIJ",
+                    Code = "VIJ",
+                    Name = "JSW Vijayanagar Processing Center",
+                    City = "Toranagallu",
+                    State = "Karnataka",
+                    IsActive = true,
+                    CreatedAt = DateTime.UtcNow
+                };
+                var locBlr = new Location
+                {
+                    Id = "LOC-BLR",
+                    Code = "BLR",
+                    Name = "JSW Bellary Service Center",
+                    City = "Bellary",
+                    State = "Karnataka",
+                    IsActive = true,
+                    CreatedAt = DateTime.UtcNow
+                };
+                var locMum = new Location
+                {
+                    Id = "LOC-MUM",
+                    Code = "MUM",
+                    Name = "JSW Kalamboli Coil Service Center",
+                    City = "Navi Mumbai",
+                    State = "Maharashtra",
+                    IsActive = true,
+                    CreatedAt = DateTime.UtcNow
+                };
+                var locPun = new Location
+                {
+                    Id = "LOC-PUN",
+                    Code = "PUN",
+                    Name = "JSW Chakan Automotive Service Center",
+                    City = "Pune",
+                    State = "Maharashtra",
+                    IsActive = true,
+                    CreatedAt = DateTime.UtcNow
+                };
+
+                _locations[locVij.Id] = locVij;
+                _locations[locBlr.Id] = locBlr;
+                _locations[locMum.Id] = locMum;
+                _locations[locPun.Id] = locPun;
+            }
+
             if (_salesOrders.IsEmpty)
             {
                 var so1 = new SalesOrder
@@ -949,6 +1451,10 @@ namespace JSWMI_CRM.Services
                     Currency = "INR",
                     Status = "Open",
                     Remarks = "High tensile CR steel required for automotive body stamping",
+                    LocationId = "LOC-VIJ",
+                    LocationName = "JSW Vijayanagar Processing Center",
+                    CreatedByUserId = "usr-admin",
+                    CreatedByName = "Admin (Vijayanagar)",
                     Items = new List<SalesOrderItem>
                     {
                         new() { Id = "SOI-101", SalesOrderId = "SO-1001", LineNum = 1, ItemCode = "JSW-CR-1250-20", ItemDescription = "CR Coils Grade D 1.20mm x 1250mm", Quantity = 45.000m, OpenQty = 45.000m, UnitPrice = 41111.11m }
@@ -968,6 +1474,10 @@ namespace JSWMI_CRM.Services
                     Currency = "INR",
                     Status = "Open",
                     Remarks = "Slit coil requirement with tight width tolerance for chassis parts",
+                    LocationId = "LOC-PUN",
+                    LocationName = "JSW Chakan Automotive Service Center",
+                    CreatedByUserId = "usr-planner-pun",
+                    CreatedByName = "Rajesh Verma (Pune)",
                     Items = new List<SalesOrderItem>
                     {
                         new() { Id = "SOI-201", SalesOrderId = "SO-1002", LineNum = 1, ItemCode = "JSW-HRPO-1500-25", ItemDescription = "HRPO Coils SAPH440 2.50mm x 1500mm", Quantity = 55.000m, OpenQty = 55.000m, UnitPrice = 44000.00m }
@@ -987,6 +1497,10 @@ namespace JSWMI_CRM.Services
                     Currency = "INR",
                     Status = "Open",
                     Remarks = "Galvanized sheets for appliance refrigeration outer panels",
+                    LocationId = "LOC-MUM",
+                    LocationName = "JSW Kalamboli Coil Service Center",
+                    CreatedByUserId = "usr-planner-mum",
+                    CreatedByName = "Amit Patel (Mumbai)",
                     Items = new List<SalesOrderItem>
                     {
                         new() { Id = "SOI-301", SalesOrderId = "SO-1003", LineNum = 1, ItemCode = "JSW-GI-1000-08", ItemDescription = "GI Coils Zero Spangle 0.80mm x 1000mm", Quantity = 22.000m, OpenQty = 22.000m, UnitPrice = 44545.45m }
@@ -1006,6 +1520,10 @@ namespace JSWMI_CRM.Services
                     Currency = "INR",
                     Status = "Open",
                     Remarks = "Critical skin panel grade cold rolled coils",
+                    LocationId = "LOC-BLR",
+                    LocationName = "JSW Bellary Service Center",
+                    CreatedByUserId = "usr-admin",
+                    CreatedByName = "Admin (Bellary)",
                     Items = new List<SalesOrderItem>
                     {
                         new() { Id = "SOI-401", SalesOrderId = "SO-1004", LineNum = 1, ItemCode = "JSW-CR-1520-16", ItemDescription = "CR Skin Panel Grade O5 1.60mm x 1520mm", Quantity = 70.000m, OpenQty = 70.000m, UnitPrice = 45714.28m }
@@ -1040,6 +1558,11 @@ namespace JSWMI_CRM.Services
                     SapSyncMessage = "Successfully posted to SAP B1 Production Order DocEntry: 12054",
                     SapSyncTimestamp = DateTime.UtcNow.AddHours(-3),
                     Remarks = "Slit into 3 automotive blanks. Quality approval attached.",
+                    LocationId = "LOC-VIJ",
+                    LocationName = "JSW Vijayanagar Processing Center",
+                    PreparedByUserId = "usr-admin",
+                    PreparedByName = "Santosh Kumar",
+                    ApprovedBy = "Production Lead",
                     Lines = new List<CuttingPlanLine>
                     {
                         new() { Id = "CPL-1", CuttingPlanId = "CP-101", LineNum = 1, OutputItemCode = "JSW-SLT-400", OutputDescription = "Slit Coil 400mm x 1.20mm", CutWidth = 400.0m, Quantity = 1, TargetWeight = 8.000m, Tolerance = "+/- 0.3 mm", Remarks = "Front door blank" },
@@ -1066,6 +1589,11 @@ namespace JSWMI_CRM.Services
                     SapSyncStatus = "Pending",
                     SapSyncMessage = "Draft cutting plan ready for review and SAP dispatch",
                     Remarks = "4 slits with 15mm edge trim scrap removal.",
+                    LocationId = "LOC-PUN",
+                    LocationName = "JSW Chakan Automotive Service Center",
+                    PreparedByUserId = "usr-planner-pun",
+                    PreparedByName = "Rajesh Verma",
+                    ApprovedBy = "Quality Manager",
                     Lines = new List<CuttingPlanLine>
                     {
                         new() { Id = "CPL-4", CuttingPlanId = "CP-102", LineNum = 1, OutputItemCode = "JSW-SLT-350", OutputDescription = "Chassis Longitudinal Rail Slit 350mm", CutWidth = 350.0m, Quantity = 2, TargetWeight = 13.400m, Tolerance = "+/- 0.5 mm", Remarks = "Pair cut" },

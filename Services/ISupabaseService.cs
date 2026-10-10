@@ -6,16 +6,27 @@ namespace JSWMI_CRM.Services
 {
     public interface ISupabaseService
     {
-        Task<List<SalesOrder>> GetSalesOrdersAsync();
+        Task<List<SalesOrder>> GetSalesOrdersAsync(string? locationId = null, bool isAdmin = true);
         Task<SalesOrder?> GetSalesOrderByIdAsync(string id);
         Task<SalesOrder> SaveSalesOrderAsync(SalesOrder order);
         Task<bool> DeleteSalesOrderAsync(string id);
 
-        Task<List<CuttingPlan>> GetCuttingPlansAsync();
+        Task<List<CuttingPlan>> GetCuttingPlansAsync(string? locationId = null, bool isAdmin = true, string? userId = null);
         Task<CuttingPlan?> GetCuttingPlanByIdAsync(string id);
         Task<CuttingPlan> SaveCuttingPlanAsync(CuttingPlan plan);
         Task<bool> DeleteCuttingPlanAsync(string id);
         Task UpdateCuttingPlanSapStatusAsync(string id, string status, string syncStatus, int? sapDocEntry, string? sapDocNum, string? message);
+
+        Task<List<Location>> GetLocationsAsync(bool onlyActive = false);
+        Task<Location?> GetLocationByIdAsync(string id);
+        Task<Location> SaveLocationAsync(Location location);
+        Task<bool> DeleteLocationAsync(string id);
+
+        Task<UserProfile?> GetUserProfileAsync(string userId);
+        Task<UserProfile> SaveUserProfileAsync(UserProfile profile);
+        Task<List<UserProfile>> GetAllUserProfilesAsync();
+
+        Task EnsureDatabaseSchemaAsync();
 
         Task<List<SapSyncLog>> GetSyncLogsAsync();
         Task AddSyncLogAsync(SapSyncLog log);

@@ -57,6 +57,22 @@ namespace JSWMI_CRM.Models
         [JsonPropertyName("remarks")]
         public string? Remarks { get; set; }
 
+        [Column("location_id")]
+        [JsonPropertyName("location_id")]
+        public string? LocationId { get; set; }
+
+        [Column("location_name")]
+        [JsonPropertyName("location_name")]
+        public string? LocationName { get; set; }
+
+        [Column("created_by_user_id")]
+        [JsonPropertyName("created_by_user_id")]
+        public string? CreatedByUserId { get; set; }
+
+        [Column("created_by_name")]
+        [JsonPropertyName("created_by_name")]
+        public string? CreatedByName { get; set; }
+
         [Column("created_at")]
         [JsonPropertyName("created_at")]
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

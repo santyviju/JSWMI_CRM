@@ -104,6 +104,26 @@ namespace JSWMI_CRM.Models
         [JsonPropertyName("remarks")]
         public string? Remarks { get; set; }
 
+        [Column("location_id")]
+        [JsonPropertyName("location_id")]
+        public string? LocationId { get; set; }
+
+        [Column("location_name")]
+        [JsonPropertyName("location_name")]
+        public string? LocationName { get; set; }
+
+        [Column("prepared_by_user_id")]
+        [JsonPropertyName("prepared_by_user_id")]
+        public string? PreparedByUserId { get; set; }
+
+        [Column("prepared_by_name")]
+        [JsonPropertyName("prepared_by_name")]
+        public string? PreparedByName { get; set; }
+
+        [Column("approved_by")]
+        [JsonPropertyName("approved_by")]
+        public string? ApprovedBy { get; set; }
+
         [Column("created_by")]
         [JsonPropertyName("created_by")]
         public string CreatedBy { get; set; } = "Planner";

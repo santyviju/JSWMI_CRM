@@ -21,9 +21,16 @@ namespace JSWMI_CRM.Pages.SalesOrders
         }
 
         public List<SalesOrder> SalesOrders { get; set; } = new();
+        public List<Location> Locations { get; set; } = new();
 
         [BindProperty(SupportsGet = true)]
         public string? SearchTerm { get; set; }
+
+        [BindProperty(SupportsGet = true)]
+        public string? LocationFilter { get; set; }
+
+        public bool IsAdmin => User.IsInRole("Admin");
+        public string? UserLocationName => User.FindFirst("LocationName")?.Value;
 
         [BindProperty]
         public SalesOrder NewOrder { get; set; } = new();
@@ -36,7 +43,12 @@ namespace JSWMI_CRM.Pages.SalesOrders
 
         public async Task OnGetAsync()
         {
-            var all = await _supabaseService.GetSalesOrdersAsync();
+            Locations = await _supabaseService.GetLocationsAsync();
+
+            var userLocationId = User.FindFirst("LocationId")?.Value;
+            var effectiveLocationId = IsAdmin ? LocationFilter : userLocationId;
+
+            var all = await _supabaseService.GetSalesOrdersAsync(effectiveLocationId, IsAdmin);
 
             if (!string.IsNullOrWhiteSpace(SearchTerm))
             {
@@ -44,7 +56,9 @@ namespace JSWMI_CRM.Pages.SalesOrders
                 SalesOrders = all.Where(x =>
                     x.DocNum.ToLowerInvariant().Contains(term) ||
                     x.CardName.ToLowerInvariant().Contains(term) ||
-                    x.CardCode.ToLowerInvariant().Contains(term)
+                    x.CardCode.ToLowerInvariant().Contains(term) ||
+                    (x.CreatedByName != null && x.CreatedByName.ToLowerInvariant().Contains(term)) ||
+                    (x.LocationName != null && x.LocationName.ToLowerInvariant().Contains(term))
                 ).ToList();
             }
             else
@@ -62,11 +76,25 @@ namespace JSWMI_CRM.Pages.SalesOrders
             }
 
             NewOrder.Id = "SO-" + Guid.NewGuid().ToString("N")[..8].ToUpperInvariant();
+            NewOrder.CreatedByUserId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            NewOrder.CreatedByName = User.Identity?.Name ?? "Sales Planner";
+
+            if (string.IsNullOrEmpty(NewOrder.LocationId))
+            {
+                NewOrder.LocationId = User.FindFirst("LocationId")?.Value;
+                NewOrder.LocationName = User.FindFirst("LocationName")?.Value;
+            }
+            else
+            {
+                var loc = await _supabaseService.GetLocationByIdAsync(NewOrder.LocationId);
+                NewOrder.LocationName = loc?.Name;
+            }
+
             NewOrder.CreatedAt = DateTime.UtcNow;
             NewOrder.UpdatedAt = DateTime.UtcNow;
 
             await _supabaseService.SaveSalesOrderAsync(NewOrder);
-            SuccessMessage = $"Sales Order {NewOrder.DocNum} created successfully.";
+            SuccessMessage = $"Sales Order {NewOrder.DocNum} created successfully for {NewOrder.LocationName ?? "JSW Service Center"}.";
             return RedirectToPage();
         }
 

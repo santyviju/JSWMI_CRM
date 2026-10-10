@@ -41,15 +41,37 @@
 
 <div class="jsw-card">
     <div class="jsw-card-header bg-light">
-        <form method="get" class="row g-2 w-100">
-            <div class="col-12 col-md-4">
+        <form method="get" class="row g-2 w-100 align-items-center">
+            <div class="col-12 col-md-5">
                 <div class="input-group">
                     <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
-                    <input type="text" name="SearchTerm" value="@Model.SearchTerm" class="form-control" placeholder="Search by DocNum, Customer..." />
+                    <input type="text" name="SearchTerm" value="@Model.SearchTerm" class="form-control" placeholder="Search by DocNum, Customer, Branch..." />
                     <button type="submit" class="btn btn-primary">Search</button>
                 </div>
             </div>
-            @if (!string.IsNullOrEmpty(Model.SearchTerm))
+            @if (Model.IsAdmin)
+            {
+                <div class="col-12 col-md-4">
+                    <select name="LocationFilter" onchange="this.form.submit()" class="form-select">
+                        <option value="">-- All Branch Locations --</option>
+                        @foreach (var loc in Model.Locations)
+                        {
+                            <option value="@loc.Id" selected="@(Model.LocationFilter == loc.Id)">
+                                @loc.Code - @loc.Name
+                            </option>
+                        }
+                    </select>
+                </div>
+            }
+            else
+            {
+                <div class="col-auto">
+                    <span class="badge bg-primary bg-opacity-10 text-primary border border-primary px-3 py-2">
+                        <i class="bi bi-geo-alt-fill me-1"></i>@(Model.UserLocationName ?? "My Branch")
+                    </span>
+                </div>
+            }
+            @if (!string.IsNullOrEmpty(Model.SearchTerm) || !string.IsNullOrEmpty(Model.LocationFilter))
             {
                 <div class="col-auto">
                     <a asp-page="/SalesOrders/Index" class="btn btn-outline-secondary">Clear Filter</a>
@@ -63,6 +85,8 @@
             <thead>
                 <tr>
                     <th>Order No (DocNum)</th>
+                    <th>Branch / Plant</th>
+                    <th>Prepared By</th>
                     <th>Customer Name</th>
                     <th>Customer Code</th>
                     <th>Order Date</th>
@@ -76,7 +100,7 @@
                 @if (Model.SalesOrders.Count == 0)
                 {
                     <tr>
-                        <td colspan="8" class="text-center py-4 text-muted">No sales orders found matching your search.</td>
+                        <td colspan="10" class="text-center py-4 text-muted">No sales orders found matching your search.</td>
                     </tr>
                 }
                 @foreach (var order in Model.SalesOrders)
@@ -90,6 +114,23 @@
                             {
                                 <span class="badge bg-light text-dark border ms-1" title="SAP B1 DocEntry">SAP #@order.DocEntry</span>
                             }
+                        </td>
+                        <td>
+                            @if (!string.IsNullOrEmpty(order.LocationName))
+                            {
+                                <span class="badge bg-primary-subtle text-primary border border-primary-subtle px-2 py-1">
+                                    <i class="bi bi-geo-alt-fill me-1"></i>@order.LocationName
+                                </span>
+                            }
+                            else
+                            {
+                                <span class="badge bg-light text-muted border">General</span>
+                            }
+                        </td>
+                        <td>
+                            <div class="small fw-semibold text-dark">
+                                <i class="bi bi-person-fill text-secondary me-1"></i>@(string.IsNullOrEmpty(order.CreatedByName) ? "Planner" : order.CreatedByName)
+                            </div>
                         </td>
                         <td>
                             <span class="fw-semibold">@order.CardName</span>
