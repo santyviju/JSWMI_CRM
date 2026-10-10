@@ -1,0 +1,37 @@
+name: Build and Package JSWMI CRM
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build & Publish Release
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Setup .NET 8 SDK
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Restore Dependencies
+      run: dotnet restore JSWMI_CRM.csproj
+
+    - name: Build Application
+      run: dotnet build JSWMI_CRM.csproj --no-restore --configuration Release
+
+    - name: Publish Web Application
+      run: dotnet publish JSWMI_CRM.csproj --configuration Release --output ./publish /p:UseAppHost=false
+
+    - name: Upload Published Build Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: jswmi-crm-web-release
+        path: ./publish
