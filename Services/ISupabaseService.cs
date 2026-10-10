@@ -23,5 +23,6 @@ namespace JSWMI_CRM.Services
         SupabaseConfig GetConfig();
         void UpdateConfig(SupabaseConfig config);
         Task<(bool isConnected, string message)> TestConnectionAsync();
+        Task<(bool success, string? userId, string? email, string? error)> AuthenticateUserAsync(string email, string password);
     }
 }

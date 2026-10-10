@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
+using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 using JSWMI_CRM.Models;
@@ -49,14 +50,77 @@ namespace JSWMI_CRM.Services
 
         public async Task<(bool isConnected, string message)> TestConnectionAsync()
         {
-            if (string.IsNullOrWhiteSpace(_config.Url) || _config.Url.Contains("your-project"))
+            var results = new List<string>();
+            bool dbSuccess = false;
+            bool restSuccess = false;
+
+            // 1. Test PostgreSQL Direct / Pooler Connection String
+            if (!string.IsNullOrWhiteSpace(_config.ConnectionString) && !_config.ConnectionString.Contains("your_password"))
             {
-                return (false, "Supabase URL is not configured. Please enter your valid Supabase project URL.");
+                try
+                {
+                    await using var conn = new NpgsqlConnection(_config.ConnectionString);
+                    await conn.OpenAsync();
+                    await using var cmd = new NpgsqlCommand("SELECT version();", conn);
+                    var version = await cmd.ExecuteScalarAsync();
+                    dbSuccess = true;
+                    results.Add("PostgreSQL Database: Connected successfully via Supabase Pooler.");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to connect to Supabase PostgreSQL database");
+                    results.Add($"PostgreSQL Database Error: {ex.Message}");
+                }
             }
 
-            if (string.IsNullOrWhiteSpace(_config.Key) || _config.Key.Contains("..."))
+            // 2. Test Supabase Cloud REST API Endpoint
+            if (!string.IsNullOrWhiteSpace(_config.Url) && !_config.Url.Contains("your-project") &&
+                !string.IsNullOrWhiteSpace(_config.Key) && !_config.Key.Contains("..."))
             {
-                return (false, "Supabase API Key is not configured. Please provide your Supabase anon or service key.");
+                try
+                {
+                    using var client = new HttpClient();
+                    client.BaseAddress = new Uri(_config.Url);
+                    client.DefaultRequestHeaders.Add("apikey", _config.Key);
+                    client.DefaultRequestHeaders.Add("Authorization", $"Bearer {_config.Key}");
+
+                    var response = await client.GetAsync("rest/v1/");
+                    if (response.IsSuccessStatusCode)
+                    {
+                        restSuccess = true;
+                        results.Add($"REST API: Connected successfully ({response.StatusCode}).");
+                    }
+                    else if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+                    {
+                        results.Add("REST API: 401 Unauthorized (Note: 'Key' must be the project 'anon' or 'service_role' JWT key, not a personal access token 'sbp_').");
+                    }
+                    else
+                    {
+                        results.Add($"REST API: {response.StatusCode} - {response.ReasonPhrase}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to connect to Supabase REST endpoint");
+                    results.Add($"REST API Error: {ex.Message}");
+                }
+            }
+            else
+            {
+                results.Add("REST API: URL or Key is not configured.");
+            }
+
+            bool overallSuccess = dbSuccess || restSuccess;
+            string combinedMessage = string.Join(" | ", results);
+
+            return (overallSuccess, combinedMessage);
+        }
+
+        public async Task<(bool success, string? userId, string? email, string? error)> AuthenticateUserAsync(string email, string password)
+        {
+            if (string.IsNullOrWhiteSpace(_config.Url) || string.IsNullOrWhiteSpace(_config.Key))
+            {
+                return (false, null, null, "Supabase Cloud URL and Key must be configured to authenticate users.");
             }
 
             try
@@ -64,38 +128,226 @@ namespace JSWMI_CRM.Services
                 using var client = new HttpClient();
                 client.BaseAddress = new Uri(_config.Url);
                 client.DefaultRequestHeaders.Add("apikey", _config.Key);
-                client.DefaultRequestHeaders.Add("Authorization", $"Bearer {_config.Key}");
 
-                var response = await client.GetAsync("rest/v1/");
+                var payload = new { email, password };
+                var jsonContent = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
+
+                var response = await client.PostAsync("auth/v1/token?grant_type=password", jsonContent);
+                var responseBody = await response.Content.ReadAsStringAsync();
+
                 if (response.IsSuccessStatusCode)
                 {
-                    return (true, $"Successfully connected to Supabase Cloud REST endpoint ({response.StatusCode}).");
+                    using var doc = JsonDocument.Parse(responseBody);
+                    var user = doc.RootElement.GetProperty("user");
+                    var id = user.GetProperty("id").GetString();
+                    var userEmail = user.GetProperty("email").GetString();
+
+                    return (true, id, userEmail, null);
                 }
                 else
                 {
-                    return (false, $"Supabase responded with status code: {response.StatusCode} - {response.ReasonPhrase}");
+                    string errorMessage = "Invalid email or password.";
+                    try
+                    {
+                        using var doc = JsonDocument.Parse(responseBody);
+                        if (doc.RootElement.TryGetProperty("msg", out var msgEl))
+                        {
+                            errorMessage = msgEl.GetString() ?? errorMessage;
+                        }
+                        else if (doc.RootElement.TryGetProperty("error_description", out var descEl))
+                        {
+                            errorMessage = descEl.GetString() ?? errorMessage;
+                        }
+                        else if (doc.RootElement.TryGetProperty("message", out var mEl))
+                        {
+                            errorMessage = mEl.GetString() ?? errorMessage;
+                        }
+                    }
+                    catch
+                    {
+                        // Fallback to default message
+                    }
+
+                    return (false, null, null, errorMessage);
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to connect to Supabase Cloud");
-                return (false, $"Connection error: {ex.Message}");
+                _logger.LogError(ex, "Error calling Supabase Auth endpoint");
+                return (false, null, null, $"Authentication error: {ex.Message}");
             }
         }
 
-        public Task<List<SalesOrder>> GetSalesOrdersAsync()
+        private bool HasDatabaseConnection => !string.IsNullOrWhiteSpace(_config.ConnectionString) && !_config.ConnectionString.Contains("your_password");
+
+        private NpgsqlConnection CreateConnection() => new NpgsqlConnection(_config.ConnectionString);
+
+        public async Task<List<SalesOrder>> GetSalesOrdersAsync()
         {
+            if (HasDatabaseConnection)
+            {
+                try
+                {
+                    await using var conn = CreateConnection();
+                    await conn.OpenAsync();
+
+                    var orders = new List<SalesOrder>();
+                    const string sqlOrders = @"SELECT id, doc_num, doc_entry, card_code, card_name, doc_date, doc_due_date, 
+                                               doc_total, currency, status, remarks, created_at, updated_at 
+                                               FROM sales_orders ORDER BY doc_date DESC;";
+
+                    await using (var cmd = new NpgsqlCommand(sqlOrders, conn))
+                    await using (var reader = await cmd.ExecuteReaderAsync())
+                    {
+                        while (await reader.ReadAsync())
+                        {
+                            orders.Add(new SalesOrder
+                            {
+                                Id = reader.GetString(0),
+                                DocNum = reader.GetString(1),
+                                DocEntry = reader.IsDBNull(2) ? null : reader.GetInt32(2),
+                                CardCode = reader.GetString(3),
+                                CardName = reader.GetString(4),
+                                DocDate = reader.GetDateTime(5),
+                                DocDueDate = reader.GetDateTime(6),
+                                DocTotal = reader.GetDecimal(7),
+                                Currency = reader.IsDBNull(8) ? "INR" : reader.GetString(8),
+                                Status = reader.IsDBNull(9) ? "Open" : reader.GetString(9),
+                                Remarks = reader.IsDBNull(10) ? null : reader.GetString(10),
+                                CreatedAt = reader.IsDBNull(11) ? DateTime.UtcNow : reader.GetDateTime(11),
+                                UpdatedAt = reader.IsDBNull(12) ? DateTime.UtcNow : reader.GetDateTime(12),
+                                Items = new List<SalesOrderItem>()
+                            });
+                        }
+                    }
+
+                    if (orders.Count > 0)
+                    {
+                        const string sqlItems = @"SELECT id, sales_order_id, line_num, item_code, item_description, 
+                                                         quantity, uom, open_qty, unit_price 
+                                                  FROM sales_order_items ORDER BY line_num;";
+
+                        await using (var cmdItems = new NpgsqlCommand(sqlItems, conn))
+                        await using (var readerItems = await cmdItems.ExecuteReaderAsync())
+                        {
+                            var ordersMap = orders.ToDictionary(x => x.Id);
+                            while (await readerItems.ReadAsync())
+                            {
+                                var orderId = readerItems.GetString(1);
+                                if (ordersMap.TryGetValue(orderId, out var ord))
+                                {
+                                    ord.Items.Add(new SalesOrderItem
+                                    {
+                                        Id = readerItems.GetString(0),
+                                        SalesOrderId = orderId,
+                                        LineNum = readerItems.GetInt32(2),
+                                        ItemCode = readerItems.GetString(3),
+                                        ItemDescription = readerItems.GetString(4),
+                                        Quantity = readerItems.GetDecimal(5),
+                                        Uom = readerItems.IsDBNull(6) ? "MT" : readerItems.GetString(6),
+                                        OpenQty = readerItems.GetDecimal(7),
+                                        UnitPrice = readerItems.GetDecimal(8)
+                                    });
+                                }
+                            }
+                        }
+
+                        foreach (var o in orders) _salesOrders[o.Id] = o;
+                        return orders;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to load Sales Orders from live Supabase PostgreSQL database; falling back to cache.");
+                }
+            }
+
             var list = _salesOrders.Values.OrderByDescending(x => x.DocDate).ToList();
-            return Task.FromResult(list);
+            return list;
         }
 
-        public Task<SalesOrder?> GetSalesOrderByIdAsync(string id)
+        public async Task<SalesOrder?> GetSalesOrderByIdAsync(string id)
         {
-            _salesOrders.TryGetValue(id, out var order);
-            return Task.FromResult(order);
+            if (HasDatabaseConnection)
+            {
+                try
+                {
+                    await using var conn = CreateConnection();
+                    await conn.OpenAsync();
+
+                    SalesOrder? order = null;
+                    const string sqlOrder = @"SELECT id, doc_num, doc_entry, card_code, card_name, doc_date, doc_due_date, 
+                                                     doc_total, currency, status, remarks, created_at, updated_at 
+                                              FROM sales_orders WHERE id = @id LIMIT 1;";
+
+                    await using (var cmd = new NpgsqlCommand(sqlOrder, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@id", id);
+                        await using var reader = await cmd.ExecuteReaderAsync();
+                        if (await reader.ReadAsync())
+                        {
+                            order = new SalesOrder
+                            {
+                                Id = reader.GetString(0),
+                                DocNum = reader.GetString(1),
+                                DocEntry = reader.IsDBNull(2) ? null : reader.GetInt32(2),
+                                CardCode = reader.GetString(3),
+                                CardName = reader.GetString(4),
+                                DocDate = reader.GetDateTime(5),
+                                DocDueDate = reader.GetDateTime(6),
+                                DocTotal = reader.GetDecimal(7),
+                                Currency = reader.IsDBNull(8) ? "INR" : reader.GetString(8),
+                                Status = reader.IsDBNull(9) ? "Open" : reader.GetString(9),
+                                Remarks = reader.IsDBNull(10) ? null : reader.GetString(10),
+                                CreatedAt = reader.IsDBNull(11) ? DateTime.UtcNow : reader.GetDateTime(11),
+                                UpdatedAt = reader.IsDBNull(12) ? DateTime.UtcNow : reader.GetDateTime(12),
+                                Items = new List<SalesOrderItem>()
+                            };
+                        }
+                    }
+
+                    if (order != null)
+                    {
+                        const string sqlItems = @"SELECT id, sales_order_id, line_num, item_code, item_description, 
+                                                         quantity, uom, open_qty, unit_price 
+                                                  FROM sales_order_items WHERE sales_order_id = @id ORDER BY line_num;";
+
+                        await using (var cmdItems = new NpgsqlCommand(sqlItems, conn))
+                        {
+                            cmdItems.Parameters.AddWithValue("@id", id);
+                            await using var readerItems = await cmdItems.ExecuteReaderAsync();
+                            while (await readerItems.ReadAsync())
+                            {
+                                order.Items.Add(new SalesOrderItem
+                                {
+                                    Id = readerItems.GetString(0),
+                                    SalesOrderId = id,
+                                    LineNum = readerItems.GetInt32(2),
+                                    ItemCode = readerItems.GetString(3),
+                                    ItemDescription = readerItems.GetString(4),
+                                    Quantity = readerItems.GetDecimal(5),
+                                    Uom = readerItems.IsDBNull(6) ? "MT" : readerItems.GetString(6),
+                                    OpenQty = readerItems.GetDecimal(7),
+                                    UnitPrice = readerItems.GetDecimal(8)
+                                });
+                            }
+                        }
+
+                        _salesOrders[order.Id] = order;
+                        return order;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to load Sales Order {Id} from Supabase PostgreSQL database", id);
+                }
+            }
+
+            _salesOrders.TryGetValue(id, out var cachedOrder);
+            return cachedOrder;
         }
 
-        public Task<SalesOrder> SaveSalesOrderAsync(SalesOrder order)
+        public async Task<SalesOrder> SaveSalesOrderAsync(SalesOrder order)
         {
             if (string.IsNullOrWhiteSpace(order.Id))
             {
@@ -104,27 +356,278 @@ namespace JSWMI_CRM.Services
 
             order.UpdatedAt = DateTime.UtcNow;
             _salesOrders[order.Id] = order;
-            return Task.FromResult(order);
+
+            if (HasDatabaseConnection)
+            {
+                try
+                {
+                    await using var conn = CreateConnection();
+                    await conn.OpenAsync();
+
+                    const string sqlUpsert = @"INSERT INTO sales_orders (id, doc_num, doc_entry, card_code, card_name, doc_date, doc_due_date, doc_total, currency, status, remarks, created_at, updated_at)
+                        VALUES (@id, @doc_num, @doc_entry, @card_code, @card_name, @doc_date, @doc_due_date, @doc_total, @currency, @status, @remarks, @created_at, @updated_at)
+                        ON CONFLICT (id) DO UPDATE SET
+                            doc_num = EXCLUDED.doc_num,
+                            doc_entry = EXCLUDED.doc_entry,
+                            card_code = EXCLUDED.card_code,
+                            card_name = EXCLUDED.card_name,
+                            doc_date = EXCLUDED.doc_date,
+                            doc_due_date = EXCLUDED.doc_due_date,
+                            doc_total = EXCLUDED.doc_total,
+                            currency = EXCLUDED.currency,
+                            status = EXCLUDED.status,
+                            remarks = EXCLUDED.remarks,
+                            updated_at = EXCLUDED.updated_at;";
+
+                    await using (var cmd = new NpgsqlCommand(sqlUpsert, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@id", order.Id);
+                        cmd.Parameters.AddWithValue("@doc_num", order.DocNum);
+                        cmd.Parameters.AddWithValue("@doc_entry", (object?)order.DocEntry ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@card_code", order.CardCode);
+                        cmd.Parameters.AddWithValue("@card_name", order.CardName);
+                        cmd.Parameters.AddWithValue("@doc_date", order.DocDate);
+                        cmd.Parameters.AddWithValue("@doc_due_date", order.DocDueDate);
+                        cmd.Parameters.AddWithValue("@doc_total", order.DocTotal);
+                        cmd.Parameters.AddWithValue("@currency", order.Currency);
+                        cmd.Parameters.AddWithValue("@status", order.Status);
+                        cmd.Parameters.AddWithValue("@remarks", (object?)order.Remarks ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@created_at", order.CreatedAt);
+                        cmd.Parameters.AddWithValue("@updated_at", order.UpdatedAt);
+                        await cmd.ExecuteNonQueryAsync();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to persist Sales Order {Id} to Supabase PostgreSQL database", order.Id);
+                }
+            }
+
+            return order;
         }
 
-        public Task<bool> DeleteSalesOrderAsync(string id)
+        public async Task<bool> DeleteSalesOrderAsync(string id)
         {
-            return Task.FromResult(_salesOrders.TryRemove(id, out _));
+            var removed = _salesOrders.TryRemove(id, out _);
+            if (HasDatabaseConnection)
+            {
+                try
+                {
+                    await using var conn = CreateConnection();
+                    await conn.OpenAsync();
+                    await using var cmd = new NpgsqlCommand("DELETE FROM sales_orders WHERE id = @id;", conn);
+                    cmd.Parameters.AddWithValue("@id", id);
+                    await cmd.ExecuteNonQueryAsync();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to delete Sales Order {Id} from Supabase PostgreSQL database", id);
+                }
+            }
+            return removed;
         }
 
-        public Task<List<CuttingPlan>> GetCuttingPlansAsync()
+        public async Task<List<CuttingPlan>> GetCuttingPlansAsync()
         {
-            var list = _cuttingPlans.Values.OrderByDescending(x => x.CreatedAt).ToList();
-            return Task.FromResult(list);
+            if (HasDatabaseConnection)
+            {
+                try
+                {
+                    await using var conn = CreateConnection();
+                    await conn.OpenAsync();
+
+                    var plans = new List<CuttingPlan>();
+                    const string sqlPlans = @"SELECT id, plan_code, sales_order_id, sales_order_doc_num, customer_name,
+                                                     mother_coil_no, heat_no, grade, mother_width, mother_thickness, mother_weight,
+                                                     total_output_width, scrap_width, total_output_weight, yield_percentage,
+                                                     status, sap_doc_entry, sap_doc_num, sap_sync_status, sap_sync_message,
+                                                     sap_sync_timestamp, remarks, created_by, created_at, updated_at
+                                              FROM cutting_plans ORDER BY created_at DESC;";
+
+                    await using (var cmd = new NpgsqlCommand(sqlPlans, conn))
+                    await using (var reader = await cmd.ExecuteReaderAsync())
+                    {
+                        while (await reader.ReadAsync())
+                        {
+                            plans.Add(new CuttingPlan
+                            {
+                                Id = reader.GetString(0),
+                                PlanCode = reader.GetString(1),
+                                SalesOrderId = reader.IsDBNull(2) ? null : reader.GetString(2),
+                                SalesOrderDocNum = reader.GetString(3),
+                                CustomerName = reader.GetString(4),
+                                MotherCoilNo = reader.GetString(5),
+                                HeatNo = reader.GetString(6),
+                                Grade = reader.GetString(7),
+                                MotherWidth = reader.GetDecimal(8),
+                                MotherThickness = reader.GetDecimal(9),
+                                MotherWeight = reader.GetDecimal(10),
+                                TotalOutputWidth = reader.GetDecimal(11),
+                                ScrapWidth = reader.GetDecimal(12),
+                                TotalOutputWeight = reader.GetDecimal(13),
+                                YieldPercentage = reader.GetDecimal(14),
+                                Status = reader.IsDBNull(15) ? "Draft" : reader.GetString(15),
+                                SapDocEntry = reader.IsDBNull(16) ? null : reader.GetInt32(16),
+                                SapDocNum = reader.IsDBNull(17) ? null : reader.GetString(17),
+                                SapSyncStatus = reader.IsDBNull(18) ? "Pending" : reader.GetString(18),
+                                SapSyncMessage = reader.IsDBNull(19) ? null : reader.GetString(19),
+                                SapSyncTimestamp = reader.IsDBNull(20) ? null : reader.GetDateTime(20),
+                                Remarks = reader.IsDBNull(21) ? null : reader.GetString(21),
+                                CreatedBy = reader.IsDBNull(22) ? "Planner" : reader.GetString(22),
+                                CreatedAt = reader.IsDBNull(23) ? DateTime.UtcNow : reader.GetDateTime(23),
+                                UpdatedAt = reader.IsDBNull(24) ? DateTime.UtcNow : reader.GetDateTime(24),
+                                Lines = new List<CuttingPlanLine>()
+                            });
+                        }
+                    }
+
+                    if (plans.Count > 0)
+                    {
+                        const string sqlLines = @"SELECT id, cutting_plan_id, line_num, output_item_code, output_description,
+                                                         cut_width, cut_length, quantity, target_weight, tolerance, edge_condition, remarks
+                                                  FROM cutting_plan_lines ORDER BY line_num;";
+
+                        await using (var cmdLines = new NpgsqlCommand(sqlLines, conn))
+                        await using (var readerLines = await cmdLines.ExecuteReaderAsync())
+                        {
+                            var plansMap = plans.ToDictionary(x => x.Id);
+                            while (await readerLines.ReadAsync())
+                            {
+                                var planId = readerLines.GetString(1);
+                                if (plansMap.TryGetValue(planId, out var pl))
+                                {
+                                    pl.Lines.Add(new CuttingPlanLine
+                                    {
+                                        Id = readerLines.GetString(0),
+                                        CuttingPlanId = planId,
+                                        LineNum = readerLines.GetInt32(2),
+                                        OutputItemCode = readerLines.GetString(3),
+                                        OutputDescription = readerLines.GetString(4),
+                                        CutWidth = readerLines.GetDecimal(5),
+                                        CutLength = readerLines.GetDecimal(6),
+                                        Quantity = readerLines.GetInt32(7),
+                                        TargetWeight = readerLines.GetDecimal(8),
+                                        Tolerance = readerLines.IsDBNull(9) ? "+/- 0.5 mm" : readerLines.GetString(9),
+                                        EdgeCondition = readerLines.IsDBNull(10) ? "Slit Edge" : readerLines.GetString(10),
+                                        Remarks = readerLines.IsDBNull(11) ? null : readerLines.GetString(11)
+                                    });
+                                }
+                            }
+                        }
+
+                        foreach (var p in plans) _cuttingPlans[p.Id] = p;
+                        return plans;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to load Cutting Plans from Supabase PostgreSQL database; falling back to cache.");
+                }
+            }
+
+            return _cuttingPlans.Values.OrderByDescending(x => x.CreatedAt).ToList();
         }
 
-        public Task<CuttingPlan?> GetCuttingPlanByIdAsync(string id)
+        public async Task<CuttingPlan?> GetCuttingPlanByIdAsync(string id)
         {
-            _cuttingPlans.TryGetValue(id, out var plan);
-            return Task.FromResult(plan);
+            if (HasDatabaseConnection)
+            {
+                try
+                {
+                    await using var conn = CreateConnection();
+                    await conn.OpenAsync();
+
+                    CuttingPlan? plan = null;
+                    const string sqlPlan = @"SELECT id, plan_code, sales_order_id, sales_order_doc_num, customer_name,
+                                                    mother_coil_no, heat_no, grade, mother_width, mother_thickness, mother_weight,
+                                                    total_output_width, scrap_width, total_output_weight, yield_percentage,
+                                                    status, sap_doc_entry, sap_doc_num, sap_sync_status, sap_sync_message,
+                                                    sap_sync_timestamp, remarks, created_by, created_at, updated_at
+                                             FROM cutting_plans WHERE id = @id LIMIT 1;";
+
+                    await using (var cmd = new NpgsqlCommand(sqlPlan, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@id", id);
+                        await using var reader = await cmd.ExecuteReaderAsync();
+                        if (await reader.ReadAsync())
+                        {
+                            plan = new CuttingPlan
+                            {
+                                Id = reader.GetString(0),
+                                PlanCode = reader.GetString(1),
+                                SalesOrderId = reader.IsDBNull(2) ? null : reader.GetString(2),
+                                SalesOrderDocNum = reader.GetString(3),
+                                CustomerName = reader.GetString(4),
+                                MotherCoilNo = reader.GetString(5),
+                                HeatNo = reader.GetString(6),
+                                Grade = reader.GetString(7),
+                                MotherWidth = reader.GetDecimal(8),
+                                MotherThickness = reader.GetDecimal(9),
+                                MotherWeight = reader.GetDecimal(10),
+                                TotalOutputWidth = reader.GetDecimal(11),
+                                ScrapWidth = reader.GetDecimal(12),
+                                TotalOutputWeight = reader.GetDecimal(13),
+                                YieldPercentage = reader.GetDecimal(14),
+                                Status = reader.IsDBNull(15) ? "Draft" : reader.GetString(15),
+                                SapDocEntry = reader.IsDBNull(16) ? null : reader.GetInt32(16),
+                                SapDocNum = reader.IsDBNull(17) ? null : reader.GetString(17),
+                                SapSyncStatus = reader.IsDBNull(18) ? "Pending" : reader.GetString(18),
+                                SapSyncMessage = reader.IsDBNull(19) ? null : reader.GetString(19),
+                                SapSyncTimestamp = reader.IsDBNull(20) ? null : reader.GetDateTime(20),
+                                Remarks = reader.IsDBNull(21) ? null : reader.GetString(21),
+                                CreatedBy = reader.IsDBNull(22) ? "Planner" : reader.GetString(22),
+                                CreatedAt = reader.IsDBNull(23) ? DateTime.UtcNow : reader.GetDateTime(23),
+                                UpdatedAt = reader.IsDBNull(24) ? DateTime.UtcNow : reader.GetDateTime(24),
+                                Lines = new List<CuttingPlanLine>()
+                            };
+                        }
+                    }
+
+                    if (plan != null)
+                    {
+                        const string sqlLines = @"SELECT id, cutting_plan_id, line_num, output_item_code, output_description,
+                                                         cut_width, cut_length, quantity, target_weight, tolerance, edge_condition, remarks
+                                                  FROM cutting_plan_lines WHERE cutting_plan_id = @id ORDER BY line_num;";
+
+                        await using (var cmdLines = new NpgsqlCommand(sqlLines, conn))
+                        {
+                            cmdLines.Parameters.AddWithValue("@id", id);
+                            await using var readerLines = await cmdLines.ExecuteReaderAsync();
+                            while (await readerLines.ReadAsync())
+                            {
+                                plan.Lines.Add(new CuttingPlanLine
+                                {
+                                    Id = readerLines.GetString(0),
+                                    CuttingPlanId = id,
+                                    LineNum = readerLines.GetInt32(2),
+                                    OutputItemCode = readerLines.GetString(3),
+                                    OutputDescription = readerLines.GetString(4),
+                                    CutWidth = readerLines.GetDecimal(5),
+                                    CutLength = readerLines.GetDecimal(6),
+                                    Quantity = readerLines.GetInt32(7),
+                                    TargetWeight = readerLines.GetDecimal(8),
+                                    Tolerance = readerLines.IsDBNull(9) ? "+/- 0.5 mm" : readerLines.GetString(9),
+                                    EdgeCondition = readerLines.IsDBNull(10) ? "Slit Edge" : readerLines.GetString(10),
+                                    Remarks = readerLines.IsDBNull(11) ? null : readerLines.GetString(11)
+                                });
+                            }
+                        }
+
+                        _cuttingPlans[plan.Id] = plan;
+                        return plan;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to load Cutting Plan {Id} from Supabase PostgreSQL database", id);
+                }
+            }
+
+            _cuttingPlans.TryGetValue(id, out var cachedPlan);
+            return cachedPlan;
         }
 
-        public Task<CuttingPlan> SaveCuttingPlanAsync(CuttingPlan plan)
+        public async Task<CuttingPlan> SaveCuttingPlanAsync(CuttingPlan plan)
         {
             if (string.IsNullOrWhiteSpace(plan.Id))
             {
@@ -139,16 +642,158 @@ namespace JSWMI_CRM.Services
             plan.RecalculateTotals();
             plan.UpdatedAt = DateTime.UtcNow;
             _cuttingPlans[plan.Id] = plan;
-            return Task.FromResult(plan);
+
+            if (HasDatabaseConnection)
+            {
+                try
+                {
+                    await using var conn = CreateConnection();
+                    await conn.OpenAsync();
+                    await using var trans = await conn.BeginTransactionAsync();
+
+                    const string sqlUpsertPlan = @"INSERT INTO cutting_plans (
+                        id, plan_code, sales_order_id, sales_order_doc_num, customer_name,
+                        mother_coil_no, heat_no, grade, mother_width, mother_thickness, mother_weight,
+                        total_output_width, scrap_width, total_output_weight, yield_percentage,
+                        status, sap_doc_entry, sap_doc_num, sap_sync_status, sap_sync_message,
+                        sap_sync_timestamp, remarks, created_by, created_at, updated_at
+                    ) VALUES (
+                        @id, @plan_code, @sales_order_id, @sales_order_doc_num, @customer_name,
+                        @mother_coil_no, @heat_no, @grade, @mother_width, @mother_thickness, @mother_weight,
+                        @total_output_width, @scrap_width, @total_output_weight, @yield_percentage,
+                        @status, @sap_doc_entry, @sap_doc_num, @sap_sync_status, @sap_sync_message,
+                        @sap_sync_timestamp, @remarks, @created_by, @created_at, @updated_at
+                    )
+                    ON CONFLICT (id) DO UPDATE SET
+                        plan_code = EXCLUDED.plan_code,
+                        sales_order_id = EXCLUDED.sales_order_id,
+                        sales_order_doc_num = EXCLUDED.sales_order_doc_num,
+                        customer_name = EXCLUDED.customer_name,
+                        mother_coil_no = EXCLUDED.mother_coil_no,
+                        heat_no = EXCLUDED.heat_no,
+                        grade = EXCLUDED.grade,
+                        mother_width = EXCLUDED.mother_width,
+                        mother_thickness = EXCLUDED.mother_thickness,
+                        mother_weight = EXCLUDED.mother_weight,
+                        total_output_width = EXCLUDED.total_output_width,
+                        scrap_width = EXCLUDED.scrap_width,
+                        total_output_weight = EXCLUDED.total_output_weight,
+                        yield_percentage = EXCLUDED.yield_percentage,
+                        status = EXCLUDED.status,
+                        sap_doc_entry = EXCLUDED.sap_doc_entry,
+                        sap_doc_num = EXCLUDED.sap_doc_num,
+                        sap_sync_status = EXCLUDED.sap_sync_status,
+                        sap_sync_message = EXCLUDED.sap_sync_message,
+                        sap_sync_timestamp = EXCLUDED.sap_sync_timestamp,
+                        remarks = EXCLUDED.remarks,
+                        updated_at = EXCLUDED.updated_at;";
+
+                    await using (var cmd = new NpgsqlCommand(sqlUpsertPlan, conn, trans))
+                    {
+                        cmd.Parameters.AddWithValue("@id", plan.Id);
+                        cmd.Parameters.AddWithValue("@plan_code", plan.PlanCode);
+                        cmd.Parameters.AddWithValue("@sales_order_id", (object?)plan.SalesOrderId ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@sales_order_doc_num", plan.SalesOrderDocNum);
+                        cmd.Parameters.AddWithValue("@customer_name", plan.CustomerName);
+                        cmd.Parameters.AddWithValue("@mother_coil_no", plan.MotherCoilNo);
+                        cmd.Parameters.AddWithValue("@heat_no", plan.HeatNo);
+                        cmd.Parameters.AddWithValue("@grade", plan.Grade);
+                        cmd.Parameters.AddWithValue("@mother_width", plan.MotherWidth);
+                        cmd.Parameters.AddWithValue("@mother_thickness", plan.MotherThickness);
+                        cmd.Parameters.AddWithValue("@mother_weight", plan.MotherWeight);
+                        cmd.Parameters.AddWithValue("@total_output_width", plan.TotalOutputWidth);
+                        cmd.Parameters.AddWithValue("@scrap_width", plan.ScrapWidth);
+                        cmd.Parameters.AddWithValue("@total_output_weight", plan.TotalOutputWeight);
+                        cmd.Parameters.AddWithValue("@yield_percentage", plan.YieldPercentage);
+                        cmd.Parameters.AddWithValue("@status", plan.Status);
+                        cmd.Parameters.AddWithValue("@sap_doc_entry", (object?)plan.SapDocEntry ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@sap_doc_num", (object?)plan.SapDocNum ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@sap_sync_status", plan.SapSyncStatus);
+                        cmd.Parameters.AddWithValue("@sap_sync_message", (object?)plan.SapSyncMessage ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@sap_sync_timestamp", (object?)plan.SapSyncTimestamp ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@remarks", (object?)plan.Remarks ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@created_by", plan.CreatedBy);
+                        cmd.Parameters.AddWithValue("@created_at", plan.CreatedAt);
+                        cmd.Parameters.AddWithValue("@updated_at", plan.UpdatedAt);
+                        await cmd.ExecuteNonQueryAsync();
+                    }
+
+                    // Replace lines
+                    await using (var cmdDel = new NpgsqlCommand("DELETE FROM cutting_plan_lines WHERE cutting_plan_id = @id;", conn, trans))
+                    {
+                        cmdDel.Parameters.AddWithValue("@id", plan.Id);
+                        await cmdDel.ExecuteNonQueryAsync();
+                    }
+
+                    if (plan.Lines.Count > 0)
+                    {
+                        const string sqlInsertLine = @"INSERT INTO cutting_plan_lines (
+                            id, cutting_plan_id, line_num, output_item_code, output_description,
+                            cut_width, cut_length, quantity, target_weight, tolerance, edge_condition, remarks
+                        ) VALUES (
+                            @id, @cutting_plan_id, @line_num, @output_item_code, @output_description,
+                            @cut_width, @cut_length, @quantity, @target_weight, @tolerance, @edge_condition, @remarks
+                        );";
+
+                        for (int i = 0; i < plan.Lines.Count; i++)
+                        {
+                            var line = plan.Lines[i];
+                            if (string.IsNullOrWhiteSpace(line.Id)) line.Id = Guid.NewGuid().ToString("N");
+                            line.CuttingPlanId = plan.Id;
+                            line.LineNum = i + 1;
+
+                            await using var cmdLine = new NpgsqlCommand(sqlInsertLine, conn, trans);
+                            cmdLine.Parameters.AddWithValue("@id", line.Id);
+                            cmdLine.Parameters.AddWithValue("@cutting_plan_id", line.CuttingPlanId);
+                            cmdLine.Parameters.AddWithValue("@line_num", line.LineNum);
+                            cmdLine.Parameters.AddWithValue("@output_item_code", line.OutputItemCode);
+                            cmdLine.Parameters.AddWithValue("@output_description", line.OutputDescription);
+                            cmdLine.Parameters.AddWithValue("@cut_width", line.CutWidth);
+                            cmdLine.Parameters.AddWithValue("@cut_length", line.CutLength);
+                            cmdLine.Parameters.AddWithValue("@quantity", line.Quantity);
+                            cmdLine.Parameters.AddWithValue("@target_weight", line.TargetWeight);
+                            cmdLine.Parameters.AddWithValue("@tolerance", line.Tolerance);
+                            cmdLine.Parameters.AddWithValue("@edge_condition", line.EdgeCondition);
+                            cmdLine.Parameters.AddWithValue("@remarks", (object?)line.Remarks ?? DBNull.Value);
+                            await cmdLine.ExecuteNonQueryAsync();
+                        }
+                    }
+
+                    await trans.CommitAsync();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to persist Cutting Plan {Id} to Supabase PostgreSQL database", plan.Id);
+                }
+            }
+
+            return plan;
         }
 
-        public Task<bool> DeleteCuttingPlanAsync(string id)
+        public async Task<bool> DeleteCuttingPlanAsync(string id)
         {
-            return Task.FromResult(_cuttingPlans.TryRemove(id, out _));
+            var removed = _cuttingPlans.TryRemove(id, out _);
+            if (HasDatabaseConnection)
+            {
+                try
+                {
+                    await using var conn = CreateConnection();
+                    await conn.OpenAsync();
+                    await using var cmd = new NpgsqlCommand("DELETE FROM cutting_plans WHERE id = @id;", conn);
+                    cmd.Parameters.AddWithValue("@id", id);
+                    await cmd.ExecuteNonQueryAsync();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to delete Cutting Plan {Id} from Supabase PostgreSQL database", id);
+                }
+            }
+            return removed;
         }
 
-        public Task UpdateCuttingPlanSapStatusAsync(string id, string status, string syncStatus, int? sapDocEntry, string? sapDocNum, string? message)
+        public async Task UpdateCuttingPlanSapStatusAsync(string id, string status, string syncStatus, int? sapDocEntry, string? sapDocNum, string? message)
         {
+            DateTime now = DateTime.UtcNow;
             if (_cuttingPlans.TryGetValue(id, out var plan))
             {
                 plan.Status = status;
@@ -156,22 +801,92 @@ namespace JSWMI_CRM.Services
                 plan.SapDocEntry = sapDocEntry;
                 plan.SapDocNum = sapDocNum;
                 plan.SapSyncMessage = message;
-                plan.SapSyncTimestamp = DateTime.UtcNow;
-                plan.UpdatedAt = DateTime.UtcNow;
+                plan.SapSyncTimestamp = now;
+                plan.UpdatedAt = now;
             }
-            return Task.CompletedTask;
+
+            if (HasDatabaseConnection)
+            {
+                try
+                {
+                    await using var conn = CreateConnection();
+                    await conn.OpenAsync();
+                    const string sqlUpdate = @"UPDATE cutting_plans SET
+                        status = @status,
+                        sap_sync_status = @syncStatus,
+                        sap_doc_entry = @sapDocEntry,
+                        sap_doc_num = @sapDocNum,
+                        sap_sync_message = @message,
+                        sap_sync_timestamp = @timestamp,
+                        updated_at = @timestamp
+                    WHERE id = @id;";
+
+                    await using var cmd = new NpgsqlCommand(sqlUpdate, conn);
+                    cmd.Parameters.AddWithValue("@id", id);
+                    cmd.Parameters.AddWithValue("@status", status);
+                    cmd.Parameters.AddWithValue("@syncStatus", syncStatus);
+                    cmd.Parameters.AddWithValue("@sapDocEntry", (object?)sapDocEntry ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@sapDocNum", (object?)sapDocNum ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@message", (object?)message ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@timestamp", now);
+                    await cmd.ExecuteNonQueryAsync();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to update SAP status for Cutting Plan {Id} in Supabase database", id);
+                }
+            }
         }
 
-        public Task<List<SapSyncLog>> GetSyncLogsAsync()
+        public async Task<List<SapSyncLog>> GetSyncLogsAsync()
         {
+            if (HasDatabaseConnection)
+            {
+                try
+                {
+                    await using var conn = CreateConnection();
+                    await conn.OpenAsync();
+                    var list = new List<SapSyncLog>();
+                    const string sqlLogs = @"SELECT id, reference_id, reference_type, endpoint, http_method,
+                                                    request_payload, response_payload, http_status_code, is_success,
+                                                    error_message, created_at
+                                             FROM sap_sync_logs ORDER BY created_at DESC LIMIT 100;";
+
+                    await using var cmd = new NpgsqlCommand(sqlLogs, conn);
+                    await using var reader = await cmd.ExecuteReaderAsync();
+                    while (await reader.ReadAsync())
+                    {
+                        list.Add(new SapSyncLog
+                        {
+                            Id = reader.GetString(0),
+                            ReferenceId = reader.GetString(1),
+                            ReferenceType = reader.GetString(2),
+                            Endpoint = reader.GetString(3),
+                            HttpMethod = reader.GetString(4),
+                            RequestPayload = reader.IsDBNull(5) ? null : reader.GetString(5),
+                            ResponsePayload = reader.IsDBNull(6) ? null : reader.GetString(6),
+                            HttpStatusCode = reader.GetInt32(7),
+                            IsSuccess = reader.GetBoolean(8),
+                            ErrorMessage = reader.IsDBNull(9) ? null : reader.GetString(9),
+                            CreatedAt = reader.IsDBNull(10) ? DateTime.UtcNow : reader.GetDateTime(10)
+                        });
+                    }
+
+                    if (list.Count > 0) return list;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to load sync logs from Supabase database; falling back to cache.");
+                }
+            }
+
             lock (_syncLock)
             {
-                var list = _syncLogs.OrderByDescending(x => x.CreatedAt).Take(100).ToList();
-                return Task.FromResult(list);
+                return _syncLogs.OrderByDescending(x => x.CreatedAt).Take(100).ToList();
             }
         }
 
-        public Task AddSyncLogAsync(SapSyncLog log)
+        public async Task AddSyncLogAsync(SapSyncLog log)
         {
             lock (_syncLock)
             {
@@ -181,7 +896,40 @@ namespace JSWMI_CRM.Services
                     _syncLogs.RemoveAt(_syncLogs.Count - 1);
                 }
             }
-            return Task.CompletedTask;
+
+            if (HasDatabaseConnection)
+            {
+                try
+                {
+                    await using var conn = CreateConnection();
+                    await conn.OpenAsync();
+                    const string sqlLog = @"INSERT INTO sap_sync_logs (
+                        id, reference_id, reference_type, endpoint, http_method,
+                        request_payload, response_payload, http_status_code, is_success, error_message, created_at
+                    ) VALUES (
+                        @id, @reference_id, @reference_type, @endpoint, @http_method,
+                        @request_payload, @response_payload, @http_status_code, @is_success, @error_message, @created_at
+                    );";
+
+                    await using var cmd = new NpgsqlCommand(sqlLog, conn);
+                    cmd.Parameters.AddWithValue("@id", log.Id);
+                    cmd.Parameters.AddWithValue("@reference_id", log.ReferenceId);
+                    cmd.Parameters.AddWithValue("@reference_type", log.ReferenceType);
+                    cmd.Parameters.AddWithValue("@endpoint", log.Endpoint);
+                    cmd.Parameters.AddWithValue("@http_method", log.HttpMethod);
+                    cmd.Parameters.AddWithValue("@request_payload", (object?)log.RequestPayload ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@response_payload", (object?)log.ResponsePayload ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@http_status_code", log.HttpStatusCode);
+                    cmd.Parameters.AddWithValue("@is_success", log.IsSuccess);
+                    cmd.Parameters.AddWithValue("@error_message", (object?)log.ErrorMessage ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@created_at", log.CreatedAt);
+                    await cmd.ExecuteNonQueryAsync();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to persist SAP sync log to Supabase database");
+                }
+            }
         }
 
         private void EnsureSeedData()
